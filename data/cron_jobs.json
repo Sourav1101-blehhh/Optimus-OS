@@ -1,0 +1,8 @@
+[
+    {
+        "id": "system_health_check",
+        "interval_seconds": 3600,
+        "action": "system_vitals",
+        "enabled": true
+    }
+]

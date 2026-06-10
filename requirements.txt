@@ -1,0 +1,14 @@
+fastapi
+uvicorn[standard]
+psutil
+websockets
+google-genai
+python-dotenv
+pyautogui
+requests
+Pillow
+anthropic
+openai
+httpx
+duckduckgo-search
+uvloop; sys_platform != 'win32'

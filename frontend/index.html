@@ -1,0 +1,314 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OPTIMUS OS v1.0 // 3D HYBRID NEURAL CORES</title>
+    <!-- Premium Cyberpunk Theme CSS -->
+    <link rel="stylesheet" href="styles.css">
+    <link rel="manifest" href="manifest.json">
+    <meta name="theme-color" content="#00f3ff">
+    <link rel="apple-touch-icon" href="icon-192.png">
+    
+    <!-- Markdown parsing & code highlighting -->
+    <script src="https://cdn.jsdelivr.net/npm/marked@4.3.0/marked.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/dompurify/3.0.3/purify.min.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/styles/atom-one-dark.min.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/highlight.min.js"></script>
+
+    <!-- Three.js is loaded EXCLUSIVELY via ES6 import in webgl_core.js (Skypack CDN @0.136.0) -->
+    <!-- Removing the conflicting r128 CDN script that caused namespace collision -->
+    <style>
+        .engine-select-container {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-family: var(--font-cyber);
+            font-size: 0.75rem;
+            color: var(--neon-cyan);
+            border: 1px solid var(--neon-cyan-dim);
+            padding: 4px 10px;
+            background: rgba(0, 0, 0, 0.6);
+            border-radius: 4px;
+            box-shadow: 0 0 10px rgba(0, 243, 255, 0.08);
+            margin-right: 15px;
+        }
+        .engine-select-label {
+            font-weight: bold;
+            letter-spacing: 1px;
+            text-shadow: 0 0 5px var(--neon-cyan-dim);
+        }
+        .engine-select-dropdown {
+            background: rgba(0, 0, 0, 0.9);
+            border: 1px solid var(--neon-cyan);
+            color: #fff;
+            font-family: var(--font-cyber);
+            font-size: 0.75rem;
+            outline: none;
+            cursor: pointer;
+            padding: 2px 6px;
+            border-radius: 2px;
+            text-shadow: 0 0 5px var(--neon-cyan);
+            transition: all 0.25s ease-in-out;
+        }
+        .engine-select-dropdown:hover {
+            border-color: var(--neon-pink);
+            text-shadow: 0 0 5px var(--neon-pink);
+        }
+        .engine-select-dropdown option {
+            background: #000;
+            color: #fff;
+            padding: 4px;
+        }
+    </style>
+</head>
+<body>
+    <!-- Glassmorphic Login Overlay -->
+    <div id="login-overlay">
+        <div class="login-panel">
+            <h1 class="login-title glitch" data-text="OPTIMUS OS">OPTIMUS <span>OS</span></h1>
+            <p class="login-subtitle">NEURAL LINK AUTHORIZATION</p>
+            <input type="password" id="login-password" placeholder="Enter Security Key" />
+            <button id="login-btn">INITIALIZE</button>
+            <div id="login-error"></div>
+            <div class="login-matrix-bg"></div>
+        </div>
+    </div>
+
+    <!-- Animated Glassmorphic Background Blobs -->
+    <div id="bg-anim"></div>
+    
+    <!-- Drag-and-drop Visual Analysis overlay -->
+    <div id="dropzone-overlay">NEURAL INTEGRITY SCANNER: DROP IMAGE TO ANALYZE</div>
+    
+    <!-- Cyberpunk scanlines overlay -->
+    <div class="scanlines"></div>
+    
+    <!-- Main Dashboard Grid -->
+    <div id="dashboard">
+        
+        <!-- HEADER -->
+        <header>
+            <div class="title">OPTIMUS OS <span>v1.0</span></div>
+            <div class="hdr-right">
+                <!-- Dropdown Engine Route selection -->
+                <div class="engine-select-container">
+                    <span class="engine-select-label">ENGINE ROUTE //</span>
+                    <select id="engine-select" class="engine-select-dropdown">
+                        <option value="LOCAL" selected>LOCAL (OLLAMA)</option>
+                        <option value="GEMINI">GEMINI (GOOGLE)</option>
+                        <option value="DEEPSEEK">DEEPSEEK (OPENAI/CLOUD)</option>
+                    </select>
+                </div>
+                <div class="status-label" id="conn-text">ESTABLISHING SYNAPSE...</div>
+                <div class="thinking-container">
+                    <span>COGNITIVE PHASE //</span>
+                    <div class="progress-bar-outer">
+                        <div class="progress-bar-inner" id="thinking-bar"></div>
+                    </div>
+                </div>
+            </div>
+        </header>
+        
+        <!-- LEFT COLUMN (Telemetry, Memory, Search actions) -->
+        <div class="col-l">
+            <!-- System Vitals (Canvas Waves) -->
+            <div class="panel">
+                <div class="ptitle">SYSTEM_VITALS <span id="vitals-status">ONLINE</span></div>
+                <div class="vitals-container">
+                    <div class="vital-metric-row">
+                        <span>CPU UTILIZATION:</span>
+                        <span class="cpu-val" id="cpu-text">42%</span>
+                    </div>
+                    <div class="vital-metric-row">
+                        <span>RAM ALLOCATION:</span>
+                        <span class="ram-val" id="ram-text">68%</span>
+                    </div>
+                    
+                    <div class="vital-canvas-container" style="display: flex; gap: 10px; height: 80px;">
+                        <div class="vital-glass-module">
+                            <div class="vital-glass-label">CPU CORE</div>
+                            <canvas id="cpu-canvas" style="width: 100%; height: 100%;"></canvas>
+                        </div>
+                        <div class="vital-glass-module">
+                            <div class="vital-glass-label">RAM BANK</div>
+                            <canvas id="ram-canvas" style="width: 100%; height: 100%;"></canvas>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Memory Banks (Interactive archives) -->
+            <div class="panel">
+                <div class="ptitle">MEMORY_BANKS <span>ARCHIVE_SYNCED</span></div>
+                <div class="mem-grid">
+                    <div class="mem-box" onclick="sendCommand('Optimus, read memory')">T-24H</div>
+                    <div class="mem-box" onclick="sendCommand('Optimus, what did I say yesterday?')">T-48H</div>
+                    <div class="mem-box" onclick="sendCommand('Optimus, recall old notes')">T-72H</div>
+                </div>
+            </div>
+            
+            <!-- Search & Actions -->
+            <div class="panel" style="flex: 1;">
+                <div class="ptitle">COGNITIVE_SHORTCUTS</div>
+                <div class="action-row" onclick="sendCommand('Optimus, search my memory for recent notes')">🔍 Query archives...</div>
+                <div class="action-row" onclick="sendCommand('Optimus, what is on my schedule today?')">🔍 Query schedule...</div>
+                <div class="action-row" onclick="sendCommand('Optimus, take a screenshot and tell me what is on my screen')">📷 Capture screen synapse...</div>
+            </div>
+        </div>
+        
+        <!-- CENTRAL COGNITIVE WEBGL CORE -->
+        <div class="col-c" id="container">
+            <div class="cognitive-hud-title">OPTIMUS COGNITIVE CORE</div>
+            
+            <!-- Floating Three.js Canvas -->
+            <canvas id="cognitive-canvas"></canvas>
+            
+            <!-- Floating Glass sliding HUD overlay for Chat link -->
+            <div class="comm-hud-widget" id="comm-hud">
+                <button class="comm-hud-toggle-btn" id="comm-hud-toggle">
+                    <span id="toggle-arrow">▶</span>
+                </button>
+                <div class="comm-hud-header" onclick="toggleCommHUD()">
+                    <span>NEURAL COMMUNICATION LINK</span>
+                </div>
+                
+                <!-- Chat Message List -->
+                <div id="chat-history">
+                    <div class="msg bot">Optimus Neural Interface connected. Standby for input...</div>
+                </div>
+                
+                <!-- Input Controls -->
+                <div class="chat-input-area">
+                    <button id="mic-btn">
+                        <svg viewBox="0 0 24 24">
+                            <path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z"></path>
+                            <path d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"></path>
+                        </svg>
+                    </button>
+                    <form id="chat-form" style="flex: 1; display: flex; gap: 6px;">
+                        <input type="text" id="text-input" placeholder="Transmit directive..." autocomplete="off">
+                        <button type="submit" id="send-btn" title="Send" style="background:rgba(0,243,255,0.08);border:1px solid rgba(0,243,255,0.3);border-radius:4px;cursor:pointer;padding:0 10px;color:var(--neon-cyan);font-size:1rem;transition:0.2s;" onmouseover="this.style.background='rgba(0,243,255,0.2)'" onmouseout="this.style.background='rgba(0,243,255,0.08)'">&#9658;</button>
+                    </form>
+                    <canvas id="waveform-canvas"></canvas>
+                </div>
+            </div>
+        </div>
+        
+        <!-- RIGHT COLUMN (Media, Smart home, Data links) -->
+        <div class="col-r">
+            <!-- Media Control -->
+            <div class="panel">
+                <div class="ptitle">MEDIA_INTEGRITY</div>
+                <div class="media-wrapper">
+                    <div class="integrity-pulse">98.4%</div>
+                    <div class="media-btns">
+                        <div class="mbtn" onclick="sendCommand('Optimus, previous track')">
+                            <svg viewBox="0 0 24 24"><path d="M6 6h2v12H6zm3.5 6l8.5 6V6z"/></svg>
+                        </div>
+                        <div class="mbtn" onclick="sendCommand('Optimus, play or pause')">
+                            <svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+                        </div>
+                        <div class="mbtn" onclick="sendCommand('Optimus, next track')">
+                            <svg viewBox="0 0 24 24"><path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"/></svg>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Smart Home / Device Interface -->
+            <div class="panel">
+                <div class="ptitle">SMART_DEVICES</div>
+                <div class="sh-list">
+                    <div class="sh-item active" onclick="toggleDevice(this, 'Optimus, toggle lights at home')">
+                        <div class="sh-dot"></div>Home Lights
+                    </div>
+                    <div class="sh-item" onclick="toggleDevice(this, 'Optimus, list my open windows')">
+                        <div class="sh-dot"></div>Library System
+                    </div>
+                    <div class="sh-item" onclick="toggleDevice(this, 'Optimus, show running windows')">
+                        <div class="sh-dot"></div>OS Frame Manager
+                    </div>
+                    <div class="sh-item" onclick="toggleDevice(this, 'Optimus, check system vitals')">
+                        <div class="sh-dot"></div>Neural Monitors
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Data Links -->
+            <div class="panel" style="flex: 1;">
+                <div class="ptitle">DATA_CHANNELS</div>
+                <div class="dl-grid">
+                    <div class="email-widget" onclick="sendCommand('Optimus, check unread emails')">
+                        <div class="email-badge" id="email-count">0 UNREAD</div>
+                        <div class="email-sub" id="email-status">Syncing IMAP server...</div>
+                    </div>
+                    <div class="action-row" style="margin-top: 5px;" onclick="sendCommand('Optimus, search the web for latest AI news')">🌐 Query Net Node...</div>
+                    <div class="action-row" onclick="sendCommand('Optimus, list files in the workspace')">📁 Access File Nodes...</div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- BOTTOM PANELS ROW -->
+        <div class="row-b">
+            
+            <!-- Bottom Left panel (context/telemetry stats) -->
+            <div class="panel">
+                <div class="ptitle">CORE_MATRIX // CONTEXT</div>
+                <div style="font-family: var(--font-cyber); font-size: 0.7rem; color: #666; display: flex; flex-direction: column; gap: 4px;">
+                    <div>NODE ADDRESS: 127.0.0.1:8000</div>
+                    <div>FRAME SYNCHRONY: NOMINAL</div>
+                    <div>NEURAL STABILITY: 99.98%</div>
+                    <div>THREAD ALLOCATORS: 10 WORKERS</div>
+                </div>
+                <div id="active-plugins-list" style="margin-top: 10px; border-top: 1px solid rgba(0, 243, 255, 0.15); padding-top: 8px;">
+                    <div style="font-family: var(--font-header); font-size: 0.65rem; color: var(--neon-pink); font-weight: bold; letter-spacing: 1.5px; margin-bottom: 6px;">ACTIVE COGNITIVE PLUGINS:</div>
+                    <div id="plugins-container" style="display: flex; flex-wrap: wrap; gap: 6px; font-family: var(--font-cyber); font-size: 0.6rem;">
+                        <span style="color: #4b5563;">SYNAPSE STANDBY...</span>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Bottom Middle panel (SYSTEM LOG / TEXT TERMINAL WITH INPUT) -->
+            <div class="panel system-log-panel" style="display: flex; flex-direction: column;">
+                <div class="ptitle">SYSTEM_LOG // CONSOLE</div>
+                <div class="terminal-scroll" id="terminal-scroll" style="flex: 1; min-height: 80px;">
+                    <!-- Color-coded logs added here dynamically -->
+                </div>
+                <form id="terminal-input-form" style="display: flex; gap: 8px; margin-top: 8px;">
+                    <span style="font-family: var(--font-mono); color: var(--neon-cyan); align-self: center;">&gt;</span>
+                    <input type="text" id="terminal-text-input" placeholder="Transmit neural directive..." autocomplete="off" style="flex: 1; background: rgba(0,0,0,0.5); border: 1px solid var(--neon-cyan-dim); color: #fff; padding: 6px 12px; font-family: var(--font-mono); font-size: 0.8rem; border-radius: 4px; outline: none; box-shadow: 0 0 8px rgba(0,243,255,0.08);">
+                    <button type="submit" style="background: rgba(0, 243, 255, 0.1); border: 1px solid var(--neon-cyan); color: var(--neon-cyan); padding: 4px 12px; font-family: var(--font-mono); font-size: 0.75rem; border-radius: 4px; cursor: pointer; text-shadow: 0 0 5px var(--neon-cyan); font-weight: bold; letter-spacing: 1px; transition: all 0.2s;">SEND</button>
+                </form>
+            </div>
+            
+            <!-- Bottom Right panel (ACTIVE TASK) -->
+            <div class="panel active-task-panel">
+                <div class="ptitle">ACTIVE_TASK // STATUS</div>
+                <div class="task-list" id="task-list">
+                    <div class="task-item">
+                        <span class="task-name" id="task-name">System Core Stable</span>
+                        <span class="task-status">ACTIVE</span>
+                    </div>
+                </div>
+                <!-- Neon glitch diamond accent in bottom right -->
+                <div class="diamond-marker"></div>
+            </div>
+            
+        </div>
+        
+    </div>
+    
+    <!-- Script integration -->
+    <script type="module" src="main.js?v=2"></script>
+    <script>
+      if ('serviceWorker' in navigator) {
+        window.addEventListener('load', () => {
+          navigator.serviceWorker.register('./service-worker.js')
+            .then(reg => console.log('[PWA] Service Worker registered.', reg.scope))
+            .catch(err => console.error('[PWA] Service Worker registration failed:', err));
+        });
+      }
+    </script>
+</body>
+</html>

@@ -7,11 +7,37 @@ let network, webgl, ui, speech;
 let accumulatedStream = "";
 
 function promptForToken() {
-    const cached = localStorage.getItem('optimus_session_token');
+    const cached = sessionStorage.getItem('optimus_session_token');
     if (cached) {
         initOptimus(cached);
         return;
     }
+    const overlay = document.getElementById('login-overlay');
+    if (overlay) overlay.classList.remove('hidden');
+}
+
+window.exportConversation = function(e) {
+    if (e) e.stopPropagation();
+    const chatBox = document.getElementById('chat-history');
+    if (!chatBox) return;
+    let exportText = "Optimus OS Conversation Export\n==============================\n\n";
+    chatBox.querySelectorAll('.chat-bubble').forEach(bubble => {
+        const isUser = bubble.classList.contains('user');
+        const role = isUser ? "USER" : "OPTIMUS";
+        const content = bubble.innerText.trim();
+        if (content) {
+            exportText += `[${role}]:\n${content}\n\n`;
+        }
+    });
+    const blob = new Blob([exportText], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `optimus_conversation_${new Date().getTime()}.txt`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
 }
 
 document.getElementById('login-btn').addEventListener('click', () => {
@@ -31,7 +57,16 @@ document.getElementById('login-password').addEventListener('keydown', (e) => {
     }
 });
 
+let isInitialized = false;
+
 function initOptimus(token) {
+    if (isInitialized) {
+        if (network) network.destroy();
+        if (ui) ui.destroy();
+        if (window._mainAnimFrameId) cancelAnimationFrame(window._mainAnimFrameId);
+    }
+    isInitialized = true;
+
     ui = new UIController();
     webgl = new WebGLCore('container', 'cognitive-canvas');
     speech = new SpeechManager();
@@ -62,7 +97,7 @@ function initOptimus(token) {
     });
 
     network.addEventListener('telemetry', (e) => {
-        ui.updateTelemetry(e.detail.cpu, e.detail.ram);
+        ui.updateTelemetry(e.detail.cpu, e.detail.ram, e.detail.disk, e.detail.net_up, e.detail.net_down);
     });
 
     network.addEventListener('amplitude', (e) => {
@@ -114,6 +149,29 @@ function initOptimus(token) {
         network.sendThought(text, engine, null, false);
     };
 
+    window.sendFeedback = (rating, element) => {
+        if (!network || !network.ws || network.ws.readyState !== WebSocket.OPEN) {
+            ui.showToast("Network offline. Feedback not recorded.", "error");
+            return;
+        }
+
+        const bubble = element.closest('.chat-bubble');
+        if (!bubble) return;
+        const text = bubble.dataset.rawText || bubble.innerText;
+        
+        network.ws.send(JSON.stringify({
+            command: "THINK_FEEDBACK",
+            text: text,
+            rating: rating
+        }));
+        
+        ui.showToast(`Feedback recorded: ${rating > 0 ? 'Positive' : 'Negative'}`);
+        
+        // Disable buttons after click
+        const buttons = bubble.querySelectorAll('.feedback-btn');
+        buttons.forEach(b => b.style.display = 'none');
+    };
+
     window.toggleDevice = (element, text) => {
         element.classList.toggle('active');
         window.sendCommand(text);
@@ -121,7 +179,7 @@ function initOptimus(token) {
 
     window.toggleCommHUD = () => {
         const hud = document.getElementById('comm-hud');
-        if (hud) hud.classList.toggle('expanded');
+        if (hud) hud.classList.toggle('collapsed');
     };
 
     // UI Input Binding
@@ -182,9 +240,9 @@ function initOptimus(token) {
     // Start Render Loop
     function render(time) {
         webgl.render(time);
-        requestAnimationFrame(render);
+        window._mainAnimFrameId = requestAnimationFrame(render);
     }
-    requestAnimationFrame(render);
+    window._mainAnimFrameId = requestAnimationFrame(render);
 }
 
 // Start

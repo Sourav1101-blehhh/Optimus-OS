@@ -44,6 +44,8 @@ async def execute(args: dict = None) -> str:
         if key not in db:
             db[key] = []
         db[key].append(value)
+        if len(db[key]) > 100:
+            db[key] = db[key][-100:]
         await save_db(db)
         return f"Successfully remembered under '{key}': {value}"
         

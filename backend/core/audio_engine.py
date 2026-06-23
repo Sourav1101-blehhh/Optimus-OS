@@ -29,7 +29,13 @@ import sounddevice as sd
 logger = logging.getLogger("OptimusAudio")
 
 # Event queue to communicate wake-word detections back to the main async loop
-WAKE_EVENT_QUEUE: asyncio.Queue = asyncio.Queue()
+WAKE_EVENT_QUEUE = None
+
+def get_wake_queue() -> asyncio.Queue:
+    global WAKE_EVENT_QUEUE
+    if WAKE_EVENT_QUEUE is None:
+        WAKE_EVENT_QUEUE = asyncio.Queue()
+    return WAKE_EVENT_QUEUE
 
 # --- TTS Subsystem ---
 # For a true Kokoro-82M ONNX pipeline, you would use:
@@ -109,17 +115,20 @@ class WakeWordDaemon:
                                    channels=1, callback=self._audio_callback):
                 while self._running:
                     data = self._q.get()
+                    if data is None:
+                        break
                     if self.recognizer.AcceptWaveform(data):
                         res = json.loads(self.recognizer.Result())
                         text = res.get("text", "")
                         if "hey" in text and "optimus" in text:
                             logger.info("WAKE WORD DETECTED: 'Hey Optimus'")
                             # Push to asyncio loop thread-safely
-                            try:
-                                loop = asyncio.get_running_loop()
-                                loop.call_soon_threadsafe(WAKE_EVENT_QUEUE.put_nowait, True)
-                            except RuntimeError:
-                                pass
+                            if hasattr(self, '_loop') and self._loop:
+                                try:
+                                    q = get_wake_queue()
+                                    self._loop.call_soon_threadsafe(q.put_nowait, True)
+                                except Exception as e:
+                                    logger.error(f"Failed to push wake event: {e}")
         except Exception as e:
             logger.error(f"Wake-word daemon crashed: {e}")
 
@@ -127,11 +136,16 @@ class WakeWordDaemon:
         if self._running:
             return
         self._running = True
+        try:
+            self._loop = asyncio.get_event_loop()
+        except RuntimeError:
+            self._loop = None
         self._thread = threading.Thread(target=self._daemon_loop, daemon=True)
         self._thread.start()
 
     def stop(self):
         self._running = False
+        self._q.put(None)
         if self._thread:
             self._thread.join(timeout=2)
 

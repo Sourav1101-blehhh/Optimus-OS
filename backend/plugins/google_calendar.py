@@ -79,4 +79,7 @@ async def execute(args: dict = None) -> str:
         except Exception as e:
             return f"Google Calendar API error: {e}"
 
-    return await asyncio.to_thread(_run_sync)
+    try:
+        return await asyncio.wait_for(asyncio.to_thread(_run_sync), timeout=15.0)
+    except asyncio.TimeoutError:
+        return "Error: Google Calendar API request timed out."

@@ -89,6 +89,13 @@ async def _run_command_async(command: str) -> str:
 
     out = stdout.decode("utf-8", errors="replace").strip()
     err = stderr.decode("utf-8", errors="replace").strip()
+    
+    MAX_LEN = 10000
+    if len(out) > MAX_LEN:
+        out = out[:MAX_LEN] + "\n...[TRUNCATED]"
+    if len(err) > MAX_LEN:
+        err = err[:MAX_LEN] + "\n...[TRUNCATED]"
+
     if err:
         out += f"\nSTDERR:\n{err}"
     return out or "Command executed successfully with no output."
@@ -114,7 +121,7 @@ async def execute(args: dict | None = None) -> str:
         return "Error: No 'command' key provided in plugin args."
 
     command  = str(args["command"])
-    approved = bool(args.get("_approved", False))
+    approved = bool(args.get("approved", False))
 
     if not approved:
         # Return sentinel string — gateway converts this to an approval_required event

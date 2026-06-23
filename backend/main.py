@@ -21,6 +21,7 @@ import re
 import sys
 from contextlib import asynccontextmanager
 from typing import Optional
+import secrets
 
 # ---------------------------------------------------------------------------
 # Ollama performance flags — must precede all other imports
@@ -36,11 +37,16 @@ for _entry in (_ROOT, os.path.dirname(_ROOT)):
     if _entry not in sys.path:
         sys.path.insert(0, _entry)
 
-# uvloop accelerates the event loop on POSIX systems; harmless skip on Windows
 if sys.platform != "win32":
     try:
         import uvloop
         asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
+    except ImportError:
+        pass
+else:
+    try:
+        import winloop
+        asyncio.set_event_loop_policy(winloop.EventLoopPolicy())
     except ImportError:
         pass
 
@@ -59,7 +65,7 @@ except ImportError:
 from dotenv import load_dotenv
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel, ValidationError, Field
 
 load_dotenv()
 
@@ -77,11 +83,15 @@ logger = logging.getLogger("OptimusCore")
 # ---------------------------------------------------------------------------
 # Persistent HMAC-SHA256 Security Gateway
 # ---------------------------------------------------------------------------
-_MASTER_PW_RAW: str = os.getenv("OPTIMUS_MASTER_PASSWORD", "R136a1IC1101@")
+_MASTER_PW_RAW: str = os.getenv("OPTIMUS_MASTER_PASSWORD", "")
+if not _MASTER_PW_RAW:
+    _MASTER_PW_RAW = secrets.token_urlsafe(32)
+    logger.warning(f"No master password in .env! Generated random one-time token: {_MASTER_PW_RAW}")
+
 MASTER_PW_HASH: bytes = hashlib.sha256(_MASTER_PW_RAW.encode("utf-8")).digest()
 logger.info(
-    "Security gateway armed.  SHA-256 of master password loaded "
-    "(env: OPTIMUS_MASTER_PASSWORD).  Password persists across restarts."
+    "Security gateway armed. SHA-256 of master password loaded. "
+    "Password persists across restarts if set in .env."
 )
 
 def _verify_password(candidate: str) -> bool:
@@ -94,19 +104,20 @@ def _verify_password(candidate: str) -> bool:
 # ---------------------------------------------------------------------------
 from backend.core.agent import OptimusAgent           
 from backend.core.plugin_manager import plugin_manager  
-from backend.core.audio_engine import wake_word_engine, WAKE_EVENT_QUEUE
+from backend.core.audio_engine import wake_word_engine, get_wake_queue
 from backend.core.scheduler import optimus_scheduler
 
 # ---------------------------------------------------------------------------
 # Pydantic v2 WebSocket frame schema
 # ---------------------------------------------------------------------------
 class WebSocketMessage(BaseModel):
-    command: str
-    text: Optional[str] = None
+    command: str = Field(max_length=100)
+    text: Optional[str] = Field(default=None, max_length=1000000)
     engine: Optional[str] = "LOCAL"
     image_data: Optional[str] = None
     approved: Optional[bool] = False
     token: Optional[str] = None
+    rating: Optional[int] = 0
 
 
 # ---------------------------------------------------------------------------
@@ -168,6 +179,10 @@ class ConnectionManager:
         self._agents: dict[WebSocket, OptimusAgent] = {}
 
     async def connect(self, websocket: WebSocket) -> OptimusAgent:
+        if len(self.active_connections) >= 5:
+            logger.warning("Max WebSocket connections reached. Rejecting new connection.")
+            await websocket.close(code=1013, reason="Server busy")
+            return None
         self.active_connections.append(websocket)
         agent = OptimusAgent()          
         self._agents[websocket] = agent
@@ -180,7 +195,9 @@ class ConnectionManager:
     def disconnect(self, websocket: WebSocket) -> None:
         if websocket in self.active_connections:
             self.active_connections.remove(websocket)
-        if websocket in self._agents:
+        agent = self._agents.get(websocket)
+        if agent:
+            asyncio.create_task(agent.close())
             del self._agents[websocket]
         logger.warning(f"Neural link severed.  Active links: {len(self.active_connections)}")
 
@@ -219,7 +236,8 @@ async def wake_word_listener():
     """Listens for IPC events from the Vosk audio thread."""
     while True:
         try:
-            await WAKE_EVENT_QUEUE.get()
+            q = get_wake_queue()
+            await q.get()
             logger.info("Wake-word event consumed from IPC queue. Triggering clients.")
             # Force-activate client handshake focus
             await manager.broadcast({"type": "wake_word_detected", "data": "Hey Optimus"})
@@ -238,13 +256,36 @@ async def hardware_telemetry_loop() -> None:
     logger.info("Telemetry engine started.")
     w_sys = wmi.WMI() if HAS_GPU_WMI else None
     
+    last_net = None
+    last_time = None
+    
     while True:
         try:
             if manager.active_connections:
+                now = asyncio.get_event_loop().time()
                 cpu = await asyncio.to_thread(psutil.cpu_percent, interval=None)
                 ram = await asyncio.to_thread(lambda: psutil.virtual_memory().percent)
+                disk = await asyncio.to_thread(lambda: psutil.disk_usage("/").percent)
+                net = await asyncio.to_thread(psutil.net_io_counters)
                 
-                payload = {"type": "telemetry", "cpu": round(cpu, 1), "ram": round(ram, 1)}
+                net_up = 0.0
+                net_down = 0.0
+                if last_net and last_time and (now - last_time) > 0:
+                    dt = now - last_time
+                    net_up = (net.bytes_sent - last_net.bytes_sent) / dt / 1024 / 1024 # MB/s
+                    net_down = (net.bytes_recv - last_net.bytes_recv) / dt / 1024 / 1024 # MB/s
+                
+                last_net = net
+                last_time = now
+                
+                payload = {
+                    "type": "telemetry", 
+                    "cpu": round(cpu, 1), 
+                    "ram": round(ram, 1),
+                    "disk": round(disk, 1),
+                    "net_up": round(net_up, 2),
+                    "net_down": round(net_down, 2)
+                }
                 
                 # Extended telemetry if available
                 if HAS_GPU_WMI:
@@ -357,15 +398,49 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
         return
 
     agent = await manager.connect(websocket)
+    if agent is None:
+        return
+
+    # ── Ollama Preloading Hook ──
+    async def preload_ollama():
+        try:
+            import httpx
+            async with httpx.AsyncClient() as client:
+                await client.post(
+                    "http://localhost:11434/api/generate",
+                    json={"model": "deepseek-coder-v2", "prompt": "", "keep_alive": "10m"},
+                    timeout=5.0
+                )
+        except Exception:
+            pass
+    asyncio.create_task(preload_ollama())
+
+    message_timestamps = []
 
     try:
         while True:
             raw_data = await websocket.receive_text()
+            if len(raw_data) > 1024 * 1024:
+                logger.warning("Closing connection: Payload exceeded 1MB limit.")
+                await websocket.close(code=1009, reason="Payload too large")
+                return
+
+            # ── WebSocket Rate Limiting (10 msgs / 5s) ──
+            now = asyncio.get_event_loop().time()
+            message_timestamps = [t for t in message_timestamps if now - t < 5.0]
+            if len(message_timestamps) >= 10:
+                await manager.safe_send_json(websocket, {"type": "rate_limited", "data": "Rate limit exceeded. Please slow down."})
+                continue
+            message_timestamps.append(now)
 
             try:
                 payload = WebSocketMessage.model_validate(json.loads(raw_data))
             except (json.JSONDecodeError, ValidationError) as exc:
                 await manager.send_system_message(websocket, "Error: Invalid or malformed JSON frame — ignored.")
+                continue
+
+            if payload.command == "THINK_FEEDBACK":
+                await agent.store_feedback(payload.text or "", payload.rating or 0)
                 continue
 
             if payload.command != "THINK":

@@ -61,36 +61,20 @@ def _collect_vitals() -> dict[str, Any]:
 
 
 # ---------------------------------------------------------------------------
-# Async execute entrypoint
+# Synchronous execute
 # ---------------------------------------------------------------------------
-async def execute(args: dict | None = None) -> str:  # type: ignore[override]
-    v = await asyncio.to_thread(_collect_vitals)
-    return (
-        f"CPU:      {v['cpu_pct']}% @ {v['cpu_freq_mhz']} MHz  ({v['cpu_cores']} cores)\n"
-        f"RAM:      {v['ram_pct']}%  ({v['ram_used_gb']} GB / {v['ram_total_gb']} GB)\n"
-        f"Swap:     {v['swap_pct']}%\n"
-        f"Disk:     {v['disk_pct']}%  ({v['disk_used_gb']} GB / {v['disk_total_gb']} GB used)\n"
-        f"Network:  ↑ {v['net_sent_mb']} MB sent  |  ↓ {v['net_recv_mb']} MB recv\n"
-        f"Uptime:   {v['uptime']}\n"
-        f"Platform: {v['platform']}"
-    )
-
-
-# ---------------------------------------------------------------------------
-# Synchronous shim — plugin_manager calls execute() synchronously;
-# transparently bridges into async context when no loop is running.
-# ---------------------------------------------------------------------------
-def _sync_execute(args: dict | None = None) -> str:
+def execute(args: dict | None = None) -> str:
     try:
-        loop = asyncio.get_event_loop()
-        if loop.is_running():
-            import concurrent.futures
-            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
-                return pool.submit(asyncio.run, execute(args)).result()
-        return loop.run_until_complete(execute(args))
+        v = _collect_vitals()
+        return (
+            f"CPU:      {v['cpu_pct']}% @ {v['cpu_freq_mhz']} MHz  ({v['cpu_cores']} cores)\n"
+            f"RAM:      {v['ram_pct']}%  ({v['ram_used_gb']} GB / {v['ram_total_gb']} GB)\n"
+            f"Swap:     {v['swap_pct']}%\n"
+            f"Disk:     {v['disk_pct']}%  ({v['disk_used_gb']} GB / {v['disk_total_gb']} GB used)\n"
+            f"Network:  ↑ {v['net_sent_mb']} MB sent  |  ↓ {v['net_recv_mb']} MB recv\n"
+            f"Uptime:   {v['uptime']}\n"
+            f"Platform: {v['platform']}"
+        )
     except Exception as exc:
         return f"Error collecting vitals: {exc}"
 
-
-# Plugin manager expects a synchronous callable named `execute`
-execute = _sync_execute  # type: ignore[assignment]

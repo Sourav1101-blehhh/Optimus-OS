@@ -1,27 +1,46 @@
+import asyncio
 from duckduckgo_search import DDGS
+import httpx
 
 PLUGIN_METADATA = {
     "name": "web_search",
-    "description": "Searches the live internet (DuckDuckGo) for information and returns a summary of the top results.",
-    "keywords": ["search", "web", "internet", "google", "duckduckgo", "find out", "news"]
+    "description": "Searches the live internet (DuckDuckGo + Wikipedia) for information.",
+    "keywords": ["search", "web", "internet", "google", "duckduckgo", "find out", "news", "wikipedia"]
 }
 
-def execute(args: dict = None) -> str:
+async def execute(args: dict = None) -> str:
     if not args or "query" not in args:
-        return "Error: No search query provided. Please provide a 'query' argument."
+        return "Error: No search query provided."
     
     query = args["query"]
     max_results = args.get("max_results", 3)
     
+    results = []
+    
     try:
-        results = []
-        with DDGS() as ddgs:
-            for r in ddgs.text(query, max_results=max_results):
-                results.append(f"Title: {r['title']}\nSnippet: {r['body']}\nLink: {r['href']}")
-                
-        if not results:
-            return f"No results found for query: '{query}'"
-            
-        return "Top Search Results:\n\n" + "\n\n".join(results)
+        def fetch_ddg():
+            with DDGS() as ddgs:
+                return list(ddgs.text(query, max_results=max_results))
+        
+        ddg_res = await asyncio.to_thread(fetch_ddg)
+        for r in ddg_res:
+            results.append(f"[DDG] Title: {r.get('title')}\nSnippet: {r.get('body')}\nLink: {r.get('href')}")
     except Exception as e:
-        return f"Error performing web search: {e}"
+        results.append(f"[DDG Error] {e}")
+        
+    try:
+        async with httpx.AsyncClient() as client:
+            wiki_res = await client.get(f"https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch={query}&utf8=&format=json", timeout=5.0)
+            wiki_data = wiki_res.json()
+            search_items = wiki_data.get("query", {}).get("search", [])[:max_results]
+            for r in search_items:
+                import re
+                snippet = re.sub(r'<[^>]+>', '', r.get('snippet', ''))
+                results.append(f"[Wikipedia] Title: {r.get('title')}\nSnippet: {snippet}")
+    except Exception as e:
+        pass
+        
+    if not results:
+        return f"No results found for query: '{query}'"
+        
+    return "Top Search Results:\n\n" + "\n\n".join(results)

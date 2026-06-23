@@ -53,17 +53,14 @@ async def execute(args: dict = None) -> str:
     
     # Merge any extra parameters (like brightness, temperature)
     for k, v in args.items():
-        if k not in ["action", "entity_id", "command", "query", "_approved"]:
+        if k not in ["action", "entity_id", "command", "query", "approved"]:
             payload[k] = v
 
     try:
         async with aiohttp.ClientSession() as session:
-            async with session.post(api_endpoint, headers=headers, json=payload, timeout=5.0) as response:
-                if response.status in [200, 201]:
-                    data = await response.json()
-                    return f"[Home Assistant] Successfully executed '{service}' on '{entity_id}'. State changes: {data}"
-                else:
-                    text = await response.text()
-                    return f"[Home Assistant] Error {response.status}: {text}"
+            async with session.post(api_endpoint, headers=headers, json=payload, timeout=10.0) as response:
+                response.raise_for_status()
+                data = await response.json()
+                return f"[Home Assistant] Successfully executed '{service}' on '{entity_id}'. State changes: {data}"
     except Exception as e:
         return f"[Home Assistant] Connection error: {e}"

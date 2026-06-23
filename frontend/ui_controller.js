@@ -21,6 +21,19 @@ export class UIController {
         this.setupInteractivity(this.cpuCanvas);
         this.setupInteractivity(this.ramCanvas);
         
+        // Panel Toggles
+        const toggleL = document.getElementById('toggle-l-btn');
+        const toggleR = document.getElementById('toggle-r-btn');
+        const dashboard = document.getElementById('dashboard');
+
+        if (toggleL && dashboard) {
+            toggleL.addEventListener('click', () => dashboard.classList.toggle('hide-l'));
+        }
+        if (toggleR && dashboard) {
+            toggleR.addEventListener('click', () => dashboard.classList.toggle('hide-r'));
+        }
+
+        
         // Global 3D Dashboard Parallax
         document.addEventListener('mousemove', (e) => {
             const x = (e.clientX / window.innerWidth - 0.5) * 4; // Max tilt 2 deg
@@ -32,7 +45,7 @@ export class UIController {
             }
         });
 
-        requestAnimationFrame(() => this.drawTelemetry());
+        this.drawTelemetry();
     }
 
     setupInteractivity(canvas) {
@@ -72,7 +85,17 @@ export class UIController {
         const msg = document.createElement('div');
         msg.className = `chat-bubble ${type}`;
         
-        if (type === 'model' && window.marked) {
+        if (text.startsWith('[LOCAL]')) {
+            msg.className = 'chat-bubble system-tool';
+            text = text.substring(7).trim();
+            msg.innerHTML = `<div class="md-content" style="border-left: 3px solid var(--neon-cyan); padding-left: 10px; background: rgba(0,243,255,0.05);"><strong>TOOL EXECUTION (LOCAL)</strong><br>${DOMPurify.sanitize(text)}</div>`;
+        } else if (text.startsWith('[ERROR]')) {
+            msg.className = 'chat-bubble system-error';
+            msg.innerHTML = `<div class="md-content" style="color:#ff0055">${DOMPurify.sanitize(text)}</div>`;
+        } else if (text.startsWith('SYSTEM: Tool')) {
+            msg.className = 'chat-bubble system-tool';
+            msg.innerHTML = `<div class="md-content" style="border-left: 3px solid var(--neon-pink); padding-left: 10px; background: rgba(255,0,85,0.05); font-size: 0.85em; color: #ccc;">${DOMPurify.sanitize(text)}</div>`;
+        } else if (type === 'model' && window.marked) {
             marked.setOptions({ breaks: true, gfm: true });
             const parsed = marked.parse(text);
             msg.innerHTML = `<div class="md-content">${DOMPurify.sanitize(parsed)}</div>`;
@@ -107,7 +130,7 @@ export class UIController {
                 if (window.hljs) hljs.highlightElement(block);
             });
         } else {
-            lastBubble.innerHTML = lastBubble.dataset.rawText.replace(/\n/g, '<br>') + '<span class="typing-indicator"></span>';
+            lastBubble.innerHTML = DOMPurify.sanitize(lastBubble.dataset.rawText.replace(/\n/g, '<br>')) + '<span class="typing-indicator"></span>';
         }
         
         this.scrollToBottom();
@@ -120,12 +143,48 @@ export class UIController {
             lastBubble.dataset.finished = "true";
             const indicator = lastBubble.querySelector('.typing-indicator');
             if (indicator) indicator.remove();
+            
+            // Append Feedback Buttons
+            const feedbackContainer = document.createElement('div');
+            feedbackContainer.className = 'feedback-container';
+            feedbackContainer.style.marginTop = '8px';
+            feedbackContainer.style.display = 'flex';
+            feedbackContainer.style.gap = '8px';
+            
+            feedbackContainer.innerHTML = `
+                <button class="feedback-btn" onclick="window.sendFeedback(1, this)" style="background:transparent; border:1px solid var(--neon-cyan); border-radius:4px; color:var(--neon-cyan); cursor:pointer; padding:2px 6px; font-size:12px;">👍</button>
+                <button class="feedback-btn" onclick="window.sendFeedback(-1, this)" style="background:transparent; border:1px solid var(--neon-pink); border-radius:4px; color:var(--neon-pink); cursor:pointer; padding:2px 6px; font-size:12px;">👎</button>
+            `;
+            lastBubble.appendChild(feedbackContainer);
         }
     }
 
-    updateTelemetry(cpu, ram) {
+    updateTelemetry(cpu, ram, disk = 0, net_up = 0, net_down = 0) {
         this.cpu = cpu;
         this.ram = ram;
+        
+        // Update DOM text fields directly
+        const cpuText = document.getElementById('cpu-text');
+        const ramText = document.getElementById('ram-text');
+        const diskText = document.getElementById('disk-text');
+        const netText = document.getElementById('net-text');
+        
+        if (cpuText) {
+            cpuText.innerText = `${cpu.toFixed(1)}%`;
+            cpuText.style.color = cpu > 90 ? '#ff0055' : '';
+        }
+        if (ramText) {
+            ramText.innerText = `${ram.toFixed(1)}%`;
+            ramText.style.color = ram > 90 ? '#ff0055' : '';
+        }
+        if (diskText) {
+            diskText.innerText = `${disk.toFixed(1)}%`;
+            diskText.style.color = disk > 90 ? '#ff0055' : '';
+        }
+        if (netText) {
+            netText.innerText = `${net_up.toFixed(2)} / ${net_down.toFixed(2)}`;
+        }
+
         this.history.push({ cpu, ram });
         if (this.history.length > 50) this.history.shift();
     }
@@ -139,7 +198,7 @@ export class UIController {
         this.drawGraph(this.cpuCanvas, this.cpuCtx, 'cpu', '#00f3ff');
         this.drawGraph(this.ramCanvas, this.ramCtx, 'ram', '#ff0055');
 
-        requestAnimationFrame(() => this.drawTelemetry());
+        this._animFrameId = requestAnimationFrame(() => this.drawTelemetry());
     }
 
     drawGraph(canvas, ctx, dataKey, color) {
@@ -151,6 +210,14 @@ export class UIController {
 
         const step = w / 50;
         ctx.beginPath();
+        
+        // Add exact text overlay for current telemetry
+        if (this.history.length > 0) {
+            const currentVal = this.history[this.history.length - 1][dataKey];
+            ctx.fillStyle = color;
+            ctx.font = '12px monospace';
+            ctx.fillText(`${dataKey.toUpperCase()}: ${currentVal.toFixed(1)}%`, 5, 15);
+        }
         
         for (let i = 0; i < this.history.length; i++) {
             const val = this.history[i][dataKey];
@@ -213,7 +280,7 @@ export class UIController {
         box.innerHTML = `
             <h3>Execution Requires Approval</h3>
             <p>Optimus wants to run:</p>
-            <pre style="background:#000; padding:10px; color:#00f3ff;">${command}</pre>
+            <pre style="background:#000; padding:10px; color:#00f3ff; text-align:left; overflow-x:auto;">${DOMPurify.sanitize(command)}</pre>
             <button id="btn-approve" style="margin-right:10px; background:#00f3ff; color:#000; border:none; padding:8px 16px; cursor:pointer;">Approve</button>
             <button id="btn-deny" style="background:#ff0055; color:#fff; border:none; padding:8px 16px; cursor:pointer;">Deny</button>
         `;
@@ -228,5 +295,32 @@ export class UIController {
             document.body.removeChild(overlay);
             onDeny();
         };
+    }
+
+    showToast(message, type = "info") {
+        const toast = document.createElement('div');
+        toast.className = `toast-notification ${type}`;
+        toast.innerText = message;
+        document.body.appendChild(toast);
+        
+        // Trigger reflow for animation
+        void toast.offsetWidth;
+        toast.style.opacity = '1';
+        toast.style.transform = 'translateY(0)';
+        
+        setTimeout(() => {
+            toast.style.opacity = '0';
+            toast.style.transform = 'translateY(-20px)';
+            setTimeout(() => {
+                if (toast.parentNode) document.body.removeChild(toast);
+            }, 300);
+        }, 3000);
+    }
+
+    /**
+     * Cleans up animation loops
+     */
+    destroy() {
+        if (this._animFrameId) cancelAnimationFrame(this._animFrameId);
     }
 }

@@ -3,6 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com ws: wss: http: https: data:;">
     <title>OPTIMUS OS v1.0 // 3D HYBRID NEURAL CORES</title>
     <!-- Premium Cyberpunk Theme CSS -->
     <link rel="stylesheet" href="styles.css">
@@ -89,7 +90,8 @@
         
         <!-- HEADER -->
         <header>
-            <div class="title">OPTIMUS OS <span>v1.0</span></div>
+            <button id="toggle-l-btn" style="background:none;border:none;color:var(--neon-cyan);cursor:pointer;font-size:20px;margin-right:15px;" title="Toggle Left Panel">◧</button>
+            <div class="title" style="flex:1;">OPTIMUS OS <span>v1.0</span></div>
             <div class="hdr-right">
                 <!-- Dropdown Engine Route selection -->
                 <div class="engine-select-container">
@@ -98,6 +100,7 @@
                         <option value="LOCAL" selected>LOCAL (OLLAMA)</option>
                         <option value="GEMINI">GEMINI (GOOGLE)</option>
                         <option value="DEEPSEEK">DEEPSEEK (OPENAI/CLOUD)</option>
+                        <option value="CLAUDE">CLAUDE (ANTHROPIC)</option>
                     </select>
                 </div>
                 <div class="status-label" id="conn-text">ESTABLISHING SYNAPSE...</div>
@@ -108,6 +111,7 @@
                     </div>
                 </div>
             </div>
+            <button id="toggle-r-btn" style="background:none;border:none;color:var(--neon-cyan);cursor:pointer;font-size:20px;margin-left:15px;" title="Toggle Right Panel">◨</button>
         </header>
         
         <!-- LEFT COLUMN (Telemetry, Memory, Search actions) -->
@@ -123,6 +127,14 @@
                     <div class="vital-metric-row">
                         <span>RAM ALLOCATION:</span>
                         <span class="ram-val" id="ram-text">68%</span>
+                    </div>
+                    <div class="vital-metric-row" style="color: var(--neon-cyan); opacity: 0.8;">
+                        <span>DISK USAGE:</span>
+                        <span id="disk-text">--%</span>
+                    </div>
+                    <div class="vital-metric-row" style="color: var(--neon-cyan); opacity: 0.8;">
+                        <span>NET I/O (MB/s):</span>
+                        <span id="net-text">-- \/ --</span>
                     </div>
                     
                     <div class="vital-canvas-container" style="display: flex; gap: 10px; height: 80px;">
@@ -171,6 +183,7 @@
                 </button>
                 <div class="comm-hud-header" onclick="toggleCommHUD()">
                     <span>NEURAL COMMUNICATION LINK</span>
+                    <button id="export-chat" onclick="exportConversation(event)" title="Export Conversation" style="background:none;border:none;color:var(--neon-cyan);cursor:pointer;float:right;font-size:16px;">💾</button>
                 </div>
                 
                 <!-- Chat Message List -->

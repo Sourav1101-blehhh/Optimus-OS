@@ -32,23 +32,28 @@ def execute(args: dict = None) -> str:
         return "Error: No 'code' argument provided. Please supply the Python code to execute."
 
     code = args["code"]
-    timeout = args.get("timeout", 15)
-    approved = args.get("_approved", False)
+    try:
+        timeout = min(int(args.get("timeout", 10)), 60)
+    except (ValueError, TypeError):
+        timeout = 10
+    approved = args.get("approved", False)
 
     # ── Gate: require explicit frontend approval ───────────────────────────
     if not approved:
         return f"__APPROVAL_REQUIRED__:{code}"
 
+    import uuid
     workspace = os.path.join(os.path.dirname(__file__), "..", "..", "scratch")
     os.makedirs(workspace, exist_ok=True)
-    script_path = os.path.join(workspace, "_optimus_script.py")
+    script_path = os.path.join(workspace, f"_optimus_script_{uuid.uuid4().hex[:8]}.py")
 
     try:
         with open(script_path, "w", encoding="utf-8") as f:
             f.write(code)
 
+        import sys
         result = subprocess.run(
-            ["python", script_path],
+            [sys.executable, script_path],
             capture_output=True,
             text=True,
             timeout=timeout,
@@ -56,10 +61,17 @@ def execute(args: dict = None) -> str:
         )
 
         output = ""
+        max_len = 10000
         if result.stdout:
-            output += f"STDOUT:\n{result.stdout}"
+            stdout_str = result.stdout[:max_len]
+            if len(result.stdout) > max_len:
+                stdout_str += "\n...[TRUNCATED]"
+            output += f"STDOUT:\n{stdout_str}"
         if result.stderr:
-            output += f"\nSTDERR:\n{result.stderr}"
+            stderr_str = result.stderr[:max_len]
+            if len(result.stderr) > max_len:
+                stderr_str += "\n...[TRUNCATED]"
+            output += f"\nSTDERR:\n{stderr_str}"
         if result.returncode != 0:
             output += f"\n(Exit code: {result.returncode})"
 
@@ -70,8 +82,9 @@ def execute(args: dict = None) -> str:
     except Exception as e:
         return f"Error running code: {e}"
     finally:
-        if os.path.exists(script_path):
-            try:
+        # Cleanup the temp script
+        try:
+            if os.path.exists(script_path):
                 os.remove(script_path)
-            except Exception:
-                pass
+        except Exception:
+            pass

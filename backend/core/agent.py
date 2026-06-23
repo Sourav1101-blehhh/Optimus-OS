@@ -62,6 +62,26 @@ from backend.core.plugin_manager import plugin_manager
 load_dotenv()
 logger = logging.getLogger("OptimusAgent")
 
+_GLOBAL_CHROMA_CLIENT = None
+_GLOBAL_MEMORY_COL = None
+
+def _get_global_chromadb():
+    global _GLOBAL_CHROMA_CLIENT, _GLOBAL_MEMORY_COL
+    if _GLOBAL_CHROMA_CLIENT is None:
+        try:
+            db_path = os.path.join(os.path.dirname(__file__), "..", "..", "chroma_db")
+            _GLOBAL_CHROMA_CLIENT = chromadb.PersistentClient(path=db_path)
+            _GLOBAL_MEMORY_COL = _GLOBAL_CHROMA_CLIENT.get_or_create_collection(
+                name="optimus_episodic_memory",
+                metadata={"hnsw:space": "cosine"}
+            )
+            logger.info("Global ChromaDB PersistentClient connected.")
+        except Exception as exc:
+            logger.error(f"ChromaDB initialization failed: {exc}")
+            _GLOBAL_CHROMA_CLIENT = None
+            _GLOBAL_MEMORY_COL = None
+    return _GLOBAL_CHROMA_CLIENT, _GLOBAL_MEMORY_COL
+
 
 # ---------------------------------------------------------------------------
 # Desktop operation helper (used by Gemini function-calling)
@@ -168,96 +188,93 @@ class OptimusAgent:
         # Tier-1 index: trigram fingerprint string -> canonical SHA-256 key
         self._fp_index:      dict[str, str] = {}
 
-        # ── Persistent Episodic Memory (ChromaDB) ─────────────────────────
-        try:
-            db_path = os.path.join(os.path.dirname(__file__), "..", "..", "chroma_db")
-            self._chroma_client = chromadb.PersistentClient(path=db_path)
-            self._memory_col = self._chroma_client.get_or_create_collection(
-                name="optimus_episodic_memory",
-                metadata={"hnsw:space": "cosine"}
-            )
-            logger.info("ChromaDB PersistentClient connected to optimus_episodic_memory.")
-        except Exception as exc:
-            logger.error(f"ChromaDB initialization failed: {exc}")
-            self._chroma_client = None
-            self._memory_col = None
+        # ── Persistent Episodic Memory (ChromaDB) Singleton ───────────────
+        self._chroma_client, self._memory_col = _get_global_chromadb()
+        self._history_lock = asyncio.Lock()
 
         # Persistent summary built by the background pruner
         self.session_summary: str = ""
+        self._last_engine: str = "LOCAL"
 
         logger.debug("OptimusAgent instance created (isolated session).")
+
+    async def close(self) -> None:
+        """Cleanup persistent resources."""
+        if hasattr(self, '_ollama_http'):
+            try:
+                await self._ollama_http.aclose()
+            except Exception as e:
+                logger.error(f"Failed to close _ollama_http client: {e}")
 
     # ------------------------------------------------------------------
     # Conversation History & Dynamic Context Pruning
     # ------------------------------------------------------------------
-    def _append_history(
-        self, role: str, content: str, image_data: Optional[str] = None
-    ) -> None:
-        entry: dict = {"role": role, "content": content}
-        if image_data:
-            entry["image_data"] = image_data
+    async def _append_history(self, role: str, content: str, image_url: Optional[str] = None) -> None:
+        async with self._history_lock:
+            msg = {"role": role, "content": content}
+            if image_url:
+                msg["image_url"] = image_url
+            self._history_matrix.append(msg)
             
-        self._history_matrix.append(entry)
-        
-        # Trigger background pruner when context window gets too large
-        if len(self._history_matrix) > 20:
-            asyncio.create_task(self._prune_history_background())
+            # Start a background task for summarization ONLY if it exceeds 20 items and isn't currently pruning
+            if len(self._history_matrix) > 20 and not getattr(self, '_pruning_in_progress', False):
+                self._pruning_in_progress = True
+                asyncio.create_task(self._prune_history_background())
 
     async def _prune_history_background(self) -> None:
-        """
-        Compresses the oldest 10 turns into a clean markdown "Current Session State Summary",
-        appends it directly to the system instructions header, wipes those 10 raw frames 
-        from active memory, and ensures they are committed to ChromaDB.
-        """
-        if len(self._history_matrix) <= 20:
-            return
-            
-        logger.info("Context window hit 20 frames. Triggering background memory pruner.")
-        
-        # Extract oldest 10 frames
-        oldest_frames = self._history_matrix[:10]
-        
-        # Build prompt for micro-LLM summarization task
-        transcript = "\n".join([f"{msg['role'].upper()}: {msg['content'][:200]}..." for msg in oldest_frames])
-        prompt = f"Summarize the following conversation history into a concise, factual markdown block detailing the current session state, established context, and any ongoing tasks or goals. Keep it under 150 words.\n\n{transcript}"
-        
-        # We use Ollama as the micro-LLM for privacy and speed
-        summary = "[SESSION SUMMARY UNAVAILABLE]"
         try:
-            async with self._ollama_http.stream(
-                "POST", "http://127.0.0.1:11434/api/generate",
-                json={"model": "deepseek-coder-v2", "prompt": prompt, "stream": False},
-                timeout=15.0
-            ) as response:
-                if response.status_code == 200:
-                    raw_bytes = await response.aread()
-                    summary_resp = json.loads(raw_bytes.decode('utf-8'))
-                    summary = summary_resp.get("response", "").strip()
-        except Exception as e:
-            logger.warning(f"Failed to generate background summary: {e}")
+            # We compress the oldest 10 messages. Since we already have session_summary,
+            # we include it to build a moving summary.
+            async with self._history_lock:
+                oldest_frames = self._history_matrix[:10]
             
-        # Update system instructions with the new summary (conceptually, we store it to prepend)
-        self.session_summary = summary
-        
-        # CONTINUOUS LEARNING: Commit to ChromaDB Episodic Memory
-        if self._memory_col:
+            summary_prompt = "Summarize the following conversation segment concisely:\n"
+            summary_prompt += f"Previous context: {self.session_summary}\n\n"
+            
+            for f in oldest_frames:
+                r = f["role"].upper()
+                c = f["content"]
+                summary_prompt += f"{r}: {c}\n"
+            
+            # Use Ollama locally for fast zero-cost summarization
+            # (Fallback to gemini could be added, but Ollama is preferred for bg tasks)
+            payload = {
+                "model": "llama3.1:8b",
+                "prompt": summary_prompt,
+                "stream": False
+            }
             try:
-                import uuid
-                doc_id = str(uuid.uuid4())
-                # Add to vector database asynchronously
-                await asyncio.to_thread(
-                    self._memory_col.add,
-                    documents=[summary],
-                    metadatas=[{"type": "background_prune_summary"}],
-                    ids=[doc_id]
+                resp = await self._ollama_http.post(
+                    f"{os.getenv('OLLAMA_API_URL', 'http://127.0.0.1:11434')}/api/generate",
+                    json=payload
                 )
-                logger.info(f"Committed session summary to episodic memory (ID: {doc_id}).")
+                resp.raise_for_status()
+                data = resp.json()
+                new_summary = data.get("response", "").strip()
+                if new_summary:
+                    self.session_summary = new_summary
             except Exception as e:
-                logger.warning(f"Failed to commit to episodic memory: {e}")
-        
-        # Wipe the oldest 10 frames from active memory list
-        self._history_matrix = self._history_matrix[10:]
-        logger.info("Background memory prune complete. Active frames reduced by 10.")
+                logger.warning(f"History summarization failed: {e}")
+            
+            async with self._history_lock:
+                self._history_matrix = self._history_matrix[10:]
+            
+            # CONTINUOUS LEARNING: Commit to ChromaDB Episodic Memory
+            if self._memory_col and new_summary:
+                try:
+                    import uuid
+                    doc_id = str(uuid.uuid4())
+                    await asyncio.to_thread(
+                        self._memory_col.add,
+                        documents=[new_summary],
+                        metadatas=[{"type": "background_prune_summary"}],
+                        ids=[doc_id]
+                    )
+                    logger.info(f"Committed session summary to episodic memory (ID: {doc_id}).")
+                except Exception as e:
+                    logger.warning(f"Failed to commit to episodic memory: {e}")
+        finally:
+            self._pruning_in_progress = False
 
     def _get_history(self) -> list[dict]:
         return self._history_matrix
@@ -337,6 +354,11 @@ class OptimusAgent:
             still exists in _cache_store, return that cached value.
             This handles minor paraphrasings of identical queries.
         """
+        volatile_keywords = ["weather", "time", "now", "today", "battery", "cpu", "ram", "gpu", "temperature"]
+        if any(kw in prompt.lower() for kw in volatile_keywords):
+            logger.debug("Bypassing cache for volatile query.")
+            return None
+
         # Tier 0 — exact hash
         t0_key = self._sha256_key(prompt)
         if t0_key in self._cache_store:
@@ -388,12 +410,20 @@ class OptimusAgent:
     # ------------------------------------------------------------------
     # System Prompt Builder
     # ------------------------------------------------------------------
-    def _build_system_prompt(self) -> str:
-        plugins_info = [
-            f"- {name}: {p['metadata'].get('description')}. Keywords: {p['metadata'].get('keywords')}"
-            for name, p in plugin_manager.plugins.items()
-        ]
-        tools_list = "\n".join(plugins_info)
+    def _build_system_prompt(self, message: str = "") -> str:
+        msg_lower = message.lower()
+        active_plugins = []
+        for name, p in plugin_manager.plugins.items():
+            keywords = p['metadata'].get('keywords', [])
+            if name in ["terminal", "file_system", "app_launcher"] or any(kw in msg_lower for kw in keywords):
+                active_plugins.append(f"- \"{name}\": {p['metadata'].get('description')} (Keywords: {keywords})")
+        
+        if not active_plugins:
+            active_plugins = [
+                f"- \"{name}\": {p['metadata'].get('description')} (Keywords: {p['metadata'].get('keywords')})"
+                for name, p in plugin_manager.plugins.items()
+            ]
+        tools_list = "\n".join(active_plugins)
         return f"""You are Optimus, an advanced autonomous local AI assistant (like Jarvis).
 Your goal is to help the user by having conversations and executing actions on their machine.
 
@@ -409,6 +439,9 @@ If you need to use a tool to fulfill the user's request, you MUST output ONLY a 
     }}
 }}
 ```
+The `<tool_name>` MUST be one of the EXACT string names listed above (e.g., "system_vitals", "screenshot"). Do not invent your own tool names.
+If a tool requires no arguments, you MUST still provide an empty object for args, like this: `"args": {{}}`.
+Do NOT add any conversational text before or after the JSON block when using a tool.
 If you do not need to use a tool, just respond with normal text. Keep responses concise and conversational.
 """
 
@@ -420,10 +453,13 @@ If you do not need to use a tool, just respond with normal text. Keep responses 
         Delegates plugin execution entirely to the plugin_manager's async
         execution path, which handles semaphore acquisition, validation,
         and async/sync routing internally.
-
-        No nested event loops or auxiliary ThreadPoolExecutors are created
-        here — all concurrency control lives in plugin_manager.execute_async().
         """
+        if plugin_name not in plugin_manager.plugins:
+            logger.warning(f"Blocked unauthorized plugin execution attempt: {plugin_name}")
+            return f"Error: Plugin '{plugin_name}' is not authorized or does not exist."
+
+        if "command" not in args:
+            args["command"] = ""
         return await plugin_manager.execute_async(plugin_name, args)
 
     # ------------------------------------------------------------------
@@ -481,9 +517,8 @@ If you do not need to use a tool, just respond with normal text. Keep responses 
 
             config = types.GenerateContentConfig(
                 system_instruction=system_prompt,
-                tools=[execute_desktop_operation],
-                temperature=0.65,       # Lower temperature = more deterministic, credit-efficient
-                max_output_tokens=2048, # Hard cap to prevent runaway generation costs
+                temperature=0.65,
+                max_output_tokens=2048,
             )
 
             # Native async streaming — no run_in_executor, no thread overhead
@@ -737,11 +772,12 @@ If you do not need to use a tool, just respond with normal text. Keep responses 
                 return
 
             engine = engine.upper()
+            self._last_engine = engine
 
             if current_depth == 0:
                 self._append_history("user", message, image_data)
 
-            system_prompt = self._build_system_prompt()
+            system_prompt = self._build_system_prompt(message)
 
             # ── Dual-tier cache check (depth 0 only) ─────────────────────────
             if current_depth == 0:
@@ -763,7 +799,12 @@ If you do not need to use a tool, just respond with normal text. Keep responses 
                     documents = results.get("documents", [[]])[0]
                     if documents:
                         memory_context = "\n---\n".join(documents)
-                        system_prompt += f"\n\n[RECALLED CONTEXT - HISTORICAL INTERACTIONS]\n{memory_context}\n"
+                        system_prompt += (
+                            f"\n\n[RECALLED CONTEXT & USER FEEDBACK]\n"
+                            f"The following are past interactions and explicit feedback (POSITIVE/NEGATIVE) from the user.\n"
+                            f"You MUST dynamically adjust your behavior to respect negative feedback and reinforce positive feedback.\n\n"
+                            f"{memory_context}\n"
+                        )
                         logger.info(f"RAG: Injected {len(documents)} episodic memories.")
                 except Exception as exc:
                     logger.warning(f"RAG Retrieval failed: {exc}")
@@ -811,26 +852,57 @@ If you do not need to use a tool, just respond with normal text. Keep responses 
             full_response = "".join(response_parts)
 
             # ── Agentic tool-use detection ───────────────────────────────────
-            if "```json" in full_response and '"tool":' in full_response:
+            # Try to fix malformed empty args like `"args": \n}`
+            fixed_response = re.sub(r'"args"\s*:\s*}', '"args": {}}', full_response)
+            
+            if "```json" in fixed_response and '"tool":' in fixed_response:
                 try:
-                    json_str = (
-                        full_response.split("```json")[1].split("```")[0].strip()
-                    )
-                    tool_call  = json.loads(json_str)
-                    tool_name  = tool_call.get("tool")
-                    tool_args  = tool_call.get("args", {})
+                    json_blocks = re.findall(r"```json\s*(\{.*?\})\s*```", fixed_response, re.DOTALL)
+                    tool_calls = []
+                    if json_blocks:
+                        for block in json_blocks:
+                            try:
+                                data = json.loads(block)
+                                if "tool" in data:
+                                    tool_calls.append(data)
+                            except:
+                                pass
+                    if not tool_calls:
+                        try:
+                            json_str = fixed_response.split("```json")[1].split("```")[0].strip()
+                            tool_call  = json.loads(json_str)
+                            if "tool" in tool_call:
+                                tool_calls.append(tool_call)
+                        except: pass
 
-                    self._append_history("model", full_response)
-                    result = await self.execute_plugin_async(tool_name, tool_args)
+                    self._append_history("model", fixed_response)
+                    
+                    async def run_tool(call):
+                        t_name = call.get("tool")
+                        t_args = call.get("args", {})
+                        if isinstance(t_args, dict):
+                            t_args.pop("approved", None)
+                            t_args.pop("_approved", None)
+                        res = await self.execute_plugin_async(t_name, t_args)
+                        return t_name, res
 
-                    if isinstance(result, str) and result.startswith("SCREENSHOT_BASE64:"):
-                        img_b64  = result[len("SCREENSHOT_BASE64:"):]
-                        img_url  = f"data:image/png;base64,{img_b64}"
-                        follow_msg = "SYSTEM: Screenshot captured. Describe what you see."
-                        self._append_history("user", follow_msg, img_url)
-                    else:
-                        follow_msg = f"SYSTEM: Tool '{tool_name}' returned:\n{result}"
-                        self._append_history("user", follow_msg)
+                    results = await asyncio.gather(*[run_tool(c) for c in tool_calls])
+
+                    for t_name, result in results:
+                        if isinstance(result, str) and result.startswith("SCREENSHOT_BASE64:"):
+                            img_b64  = result[len("SCREENSHOT_BASE64:"):]
+                            img_url  = f"data:image/png;base64,{img_b64}"
+                            follow_msg = "SYSTEM: Screenshot captured. Describe what you see."
+                            self._append_history("user", follow_msg, img_url)
+                        else:
+                            if isinstance(result, str) and ("Error:" in result or "Exception:" in result):
+                                follow_msg = (
+                                    f"SYSTEM [URGENT]: Tool '{t_name}' FAILED with error:\n{result}\n"
+                                    f"Please analyze this error and immediately formulate a corrected tool call to recover."
+                                )
+                            else:
+                                follow_msg = f"SYSTEM: Tool '{t_name}' returned:\n{result}"
+                            self._append_history("user", follow_msg)
 
                     # Recurse with incremented depth counter
                     async for tok in self.process_message_stream(
@@ -875,3 +947,24 @@ If you do not need to use a tool, just respond with normal text. Keep responses 
             # Always purge base64 assets from history after inference completes
             # to prevent token count inflation on subsequent turns.
             self.purge_base64_assets()
+            
+    async def store_feedback(self, text: str, rating: int):
+        """Stores explicit user feedback on an AI response into ChromaDB to influence future interactions."""
+        if not self._memory_col:
+            return
+            
+        sentiment = "POSITIVE" if rating > 0 else "NEGATIVE"
+        mem_id = hashlib.sha256(f"FEEDBACK_{text}_{rating}".encode('utf-8')).hexdigest()[:16]
+        
+        doc_text = f"User Feedback on AI Response: [{sentiment}] - AI Said: '{text}'"
+        
+        try:
+            await asyncio.to_thread(
+                self._memory_col.add,
+                documents=[doc_text],
+                ids=[mem_id],
+                metadatas=[{"type": "feedback", "rating": rating}]
+            )
+            logger.info(f"Stored user feedback ({sentiment}) in semantic memory.")
+        except Exception as e:
+            logger.error(f"Failed to store user feedback: {e}")

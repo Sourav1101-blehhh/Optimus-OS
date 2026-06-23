@@ -3,7 +3,7 @@
  * ======================================================
  *
  * Architecture: EventTarget-based Event Bus
- * Security:     Persistent token caching in localStorage
+ * Security:     Persistent token caching in sessionStorage
  * Reliability:  Exponential backoff auto-reconnect (max 30 s interval)
  *
  * Reconnection Protocol:
@@ -15,7 +15,7 @@
  *     Attempt 4:  8 s delay
  *     Attempt 5+: 30 s delay (cap)
  *
- *   The active security token is cached in localStorage under the key
+ *   The active security token is cached in sessionStorage under the key
  *   'optimus_session_token' so the user is never prompted again after the
  *   initial login — not even after a page reload.  Manual logout (or
  *   clearing site data) is required to force re-authentication.
@@ -62,14 +62,14 @@ export class NetworkManager extends EventTarget {
     // -----------------------------------------------------------------------
 
     /**
-     * Initiates the WebSocket connection and stores the token in localStorage.
+     * Initiates the WebSocket connection and stores the token in sessionStorage.
      * This is the only entry point for establishing a connection.
      *
-     * @param {string} token - The master password string (persisted to localStorage)
+     * @param {string} token - The master password string (persisted to sessionStorage)
      */
     connect(token) {
         this.token = token;
-        localStorage.setItem('optimus_session_token', token);
+        sessionStorage.setItem('optimus_session_token', token);
         this._intentionalClose = false;
         this._openSocket();
     }
@@ -155,7 +155,7 @@ export class NetworkManager extends EventTarget {
             // Retrying with the same bad token would loop forever — instead,
             // wipe the cached token and surface a re-auth prompt to the user.
             if (event.code === 1008) {
-                localStorage.removeItem('optimus_session_token');
+                sessionStorage.removeItem('optimus_session_token');
                 this.token = null;
                 this.dispatchEvent(new CustomEvent('status', {
                     detail: 'Auth failed — password rejected. Please reload to re-enter password.'
@@ -206,7 +206,7 @@ export class NetworkManager extends EventTarget {
             this._reconnectTimer = null;
 
             // Recover the cached token — no user prompt needed
-            const cachedToken = this.token || localStorage.getItem('optimus_session_token');
+            const cachedToken = this.token || sessionStorage.getItem('optimus_session_token');
             if (!cachedToken) {
                 this.dispatchEvent(new CustomEvent('status', {
                     detail: 'Reconnect failed: no token cached. Please reload.'
@@ -230,6 +230,10 @@ export class NetworkManager extends EventTarget {
             this._reconnectTimer = null;
         }
         if (this.ws) {
+            this.ws.onclose = null;
+            this.ws.onerror = null;
+            this.ws.onmessage = null;
+            this.ws.onopen = null;
             this.ws.close(1000, 'Client disconnect');
             this.ws = null;
         }
@@ -311,5 +315,19 @@ export class NetworkManager extends EventTarget {
         const ratio     = Math.min(this._smoothTps / this._satTps, 1.0);
         const amplitude = ratio * ratio * (3 - 2 * ratio); // smoothstep
         this.dispatchEvent(new CustomEvent('amplitude', { detail: amplitude }));
+    }
+
+    /**
+     * Cleans up resources, timers, and closes the connection.
+     */
+    destroy() {
+        if (this._tickInterval) clearInterval(this._tickInterval);
+        if (this._decayInterval) clearInterval(this._decayInterval);
+        if (this._reconnectTimer) clearTimeout(this._reconnectTimer);
+        this._intentionalClose = true;
+        if (this.socket) {
+            this.socket.close();
+            this.socket = null;
+        }
     }
 }

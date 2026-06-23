@@ -48,30 +48,8 @@ def execute(args: dict = None) -> str:
     executable = APP_MAP.get(app_name, app_name)
     
     try:
-        # Use 'start' on Windows for best compatibility
-        if executable.startswith("ms-"):
-            # UWP/Settings URI
-            os.startfile(executable)
-        else:
-            import asyncio
-            # If called from an async context, launch asynchronously
-            try:
-                loop = asyncio.get_running_loop()
-                loop.create_task(
-                    asyncio.create_subprocess_exec(
-                        "cmd", "/c", "start", "", executable,
-                        stdout=asyncio.subprocess.DEVNULL,
-                        stderr=asyncio.subprocess.DEVNULL
-                    )
-                )
-            except RuntimeError:
-                # Fallback if called synchronously
-                subprocess.Popen(
-                    ["cmd", "/c", "start", "", executable],
-                    shell=False,
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL
-                )
+        # os.startfile is immune to cmd injection and handles UWP apps natively
+        os.startfile(executable)
         return f"Successfully launched: {app_name}"
     except Exception as e:
         return f"Error launching '{app_name}': {e}"

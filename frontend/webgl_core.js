@@ -1,7 +1,7 @@
-import * as THREE from 'https://cdn.skypack.dev/three@0.136.0';
-import { EffectComposer } from 'https://cdn.skypack.dev/three@0.136.0/examples/jsm/postprocessing/EffectComposer.js';
-import { RenderPass } from 'https://cdn.skypack.dev/three@0.136.0/examples/jsm/postprocessing/RenderPass.js';
-import { UnrealBloomPass } from 'https://cdn.skypack.dev/three@0.136.0/examples/jsm/postprocessing/UnrealBloomPass.js';
+import * as THREE from 'https://esm.sh/three@0.136.0';
+import { EffectComposer } from 'https://esm.sh/three@0.136.0/examples/jsm/postprocessing/EffectComposer.js';
+import { RenderPass } from 'https://esm.sh/three@0.136.0/examples/jsm/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from 'https://esm.sh/three@0.136.0/examples/jsm/postprocessing/UnrealBloomPass.js';
 
 export class WebGLCore {
     constructor(containerId, canvasId) {
@@ -51,7 +51,8 @@ export class WebGLCore {
         this.targetAmplitude = 0;
         this.currentAmplitude = 0;
 
-        window.addEventListener('resize', this.onWindowResize.bind(this));
+        this._resizeHandler = this.onWindowResize.bind(this);
+        window.addEventListener('resize', this._resizeHandler);
     }
 
     setupOrb() {
@@ -229,10 +230,37 @@ export class WebGLCore {
     }
 
     onWindowResize() {
-        this.camera.aspect = this.container.clientWidth / this.container.clientHeight;
+        if (!this.container) return;
+        const w = this.container.clientWidth;
+        const h = this.container.clientHeight;
+        if (w === 0 || h === 0) return;
+
+        this.camera.aspect = w / h;
         this.camera.updateProjectionMatrix();
-        this.renderer.setSize(this.container.clientWidth, this.container.clientHeight);
-        this.composer.setSize(this.container.clientWidth, this.container.clientHeight);
+        this.renderer.setSize(w, h);
+        this.composer.setSize(w, h);
+        if (this.bloomPass) {
+            this.bloomPass.resolution.set(w, h);
+        }
+    }
+
+    destroy() {
+        window.removeEventListener('resize', this._resizeHandler);
+        
+        if (this.orb) {
+            this.orb.geometry.dispose();
+            this.orb.material.dispose();
+        }
+        if (this.particles) {
+            this.particles.geometry.dispose();
+            this.particles.material.dispose();
+        }
+        
+        if (this.renderer) {
+            this.renderer.dispose();
+            this.renderer.forceContextLoss();
+            this.renderer.domElement.remove();
+        }
     }
 
     render(time) {

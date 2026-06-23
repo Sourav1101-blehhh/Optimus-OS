@@ -39,7 +39,7 @@ def start_backend():
     global backend_process
     # Use pythonw or start detached so it doesn't open a console window
     # sys.executable points to the current venv python
-    cmd = [sys.executable, "-m", "uvicorn", "backend.main:app", "--host", "127.0.0.1", "--port", "8001"]
+    cmd = [sys.executable, "-m", "uvicorn", "backend.main:app", "--host", "127.0.0.1", "--port", "8000"]
     
     creationflags = 0
     if sys.platform == "win32":

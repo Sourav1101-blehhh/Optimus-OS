@@ -54,8 +54,7 @@ class ProactiveScheduler:
             result = await plugin_manager.execute_async(action, {"command": "Proactive automated check", "query": "", "_approved": True})
             
             # If the result suggests a critical state (e.g. CPU > 90%), we push an unprompted alert.
-            # Here we just blindly broadcast for demonstration of the unprompted alert channel.
-            if "alert" in result.lower() or "critical" in result.lower() or True:
+            if "alert" in result.lower() or "critical" in result.lower():
                 payload = {
                     "type": "chat",
                     "data": f"[PROACTIVE ALERT] Routine '{job_def.get('id')}' executed.\n\n{result}"
@@ -71,21 +70,36 @@ class ProactiveScheduler:
             with open(self.jobs_file, "r") as f:
                 jobs = json.load(f)
                 
-            # Clear existing jobs
-            self.scheduler.remove_all_jobs()
-            
+            active_ids = set()
             for job in jobs:
                 if job.get("enabled", False):
-                    # We schedule a wrapper coroutine
-                    async def wrapper(j=job):
-                        await self._execute_job(j)
-                        
-                    self.scheduler.add_job(
-                        wrapper,
-                        trigger=IntervalTrigger(seconds=job.get("interval_seconds", 60)),
-                        id=job.get("id"),
-                        replace_existing=True
-                    )
+                    job_id = job.get("id")
+                    active_ids.add(job_id)
+                    
+                    existing = self.scheduler.get_job(job_id)
+                    new_seconds = job.get("interval_seconds", 60)
+                    
+                    if not existing:
+                        # Create wrapper inside a helper to capture current job
+                        def make_wrapper(j):
+                            async def wrapper():
+                                await self._execute_job(j)
+                            return wrapper
+                            
+                        self.scheduler.add_job(
+                            make_wrapper(job),
+                            trigger=IntervalTrigger(seconds=new_seconds),
+                            id=job_id
+                        )
+                    else:
+                        if hasattr(existing.trigger, "interval") and existing.trigger.interval.total_seconds() != new_seconds:
+                            self.scheduler.reschedule_job(job_id, trigger=IntervalTrigger(seconds=new_seconds))
+
+            # Remove jobs that are no longer active
+            for job_obj in list(self.scheduler.get_jobs()):
+                if job_obj.id not in active_ids:
+                    self.scheduler.remove_job(job_obj.id)
+                    
             logger.info(f"Proactive Scheduler synchronized {len(self.scheduler.get_jobs())} active routines.")
         except Exception as e:
             logger.error(f"Failed to sync jobs from disk: {e}")

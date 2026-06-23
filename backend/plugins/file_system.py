@@ -27,8 +27,15 @@ PLUGIN_METADATA: dict[str, Any] = {
 # ---------------------------------------------------------------------------
 # Blocking I/O helpers — each wrapped in asyncio.to_thread at call-site
 # ---------------------------------------------------------------------------
+WORKSPACE_ROOT = Path(__file__).resolve().parent.parent.parent
+
+def _enforce_sandbox(filepath: str) -> Path:
+    p = Path(filepath).resolve()
+    if not p.is_relative_to(WORKSPACE_ROOT):
+        raise PermissionError(f"Access denied: '{filepath}' is outside the workspace sandbox.")
+    return p
 def _read(filepath: str) -> str:
-    p = Path(filepath)
+    p = _enforce_sandbox(filepath)
     if not p.exists():
         return f"Error: '{filepath}' does not exist."
     if not p.is_file():
@@ -39,7 +46,7 @@ def _read(filepath: str) -> str:
 
 
 def _write(filepath: str, content: str, mode: str = "w") -> str:
-    p = Path(filepath)
+    p = _enforce_sandbox(filepath)
     p.parent.mkdir(parents=True, exist_ok=True)
     with p.open(mode, encoding="utf-8") as f:
         f.write(content)
@@ -48,7 +55,7 @@ def _write(filepath: str, content: str, mode: str = "w") -> str:
 
 
 def _delete(filepath: str) -> str:
-    p = Path(filepath)
+    p = _enforce_sandbox(filepath)
     if not p.exists():
         return f"Error: '{filepath}' does not exist."
     if p.is_file():
@@ -61,7 +68,7 @@ def _delete(filepath: str) -> str:
 
 
 def _list_dir(dirpath: str, pattern: str = "*") -> str:
-    p = Path(dirpath)
+    p = _enforce_sandbox(dirpath)
     if not p.exists():
         return f"Error: '{dirpath}' does not exist."
     if not p.is_dir():
@@ -84,7 +91,7 @@ def _list_dir(dirpath: str, pattern: str = "*") -> str:
 
 
 def _search(dirpath: str, pattern: str, max_results: int = 40) -> str:
-    p = Path(dirpath)
+    p = _enforce_sandbox(dirpath)
     if not p.exists():
         return f"Error: '{dirpath}' does not exist."
     found: list[str] = []
@@ -105,7 +112,7 @@ def _search(dirpath: str, pattern: str, max_results: int = 40) -> str:
 
 
 def _info(filepath: str) -> str:
-    p = Path(filepath)
+    p = _enforce_sandbox(filepath)
     if not p.exists():
         return f"Error: '{filepath}' does not exist."
     st = p.stat()

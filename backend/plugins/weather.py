@@ -14,11 +14,9 @@ async def execute(args: dict = None) -> str:
     
     try:
         async with httpx.AsyncClient() as client:
-            response = await client.get(url, timeout=5.0)
+            response = await client.get(url, timeout=10.0)
+            response.raise_for_status()
             
-        if response.status_code == 200:
-            return f"Weather Report: {response.text.strip()}"
-        else:
-            return f"Error fetching weather data. Status Code: {response.status_code}"
+        return f"Weather Report: {response.text.strip()}"
     except Exception as e:
         return f"Error fetching weather: {e}"

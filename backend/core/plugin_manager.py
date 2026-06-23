@@ -32,27 +32,21 @@ from pydantic import ConfigDict
 logger = logging.getLogger("OptimusPluginManager")
 
 
+from pydantic import BaseModel, ValidationError, Field
+
 # ---------------------------------------------------------------------------
 # Plugin Input Contract — Pydantic v2
 # ---------------------------------------------------------------------------
 class PluginInput(BaseModel):
     """
     Shared validation model for all plugin invocations.
-
-    Required fields:
-        command  — the raw utterance or directive from the user
-        query    — extracted query or command string for the plugin
-        _approved — HITL gate flag; True means the user explicitly approved execution
-
-    Extra fields (e.g. 'path', 'url', 'app_name') are forwarded unchanged to
-    the plugin via `extra='allow'`.
     """
 
-    model_config = ConfigDict(extra="allow")
+    model_config = ConfigDict(extra="allow", populate_by_name=True)
 
-    command: str
-    query: str = ""
-    _approved: bool = False
+    command: str = Field(max_length=500000)
+    query: str = Field(default="", max_length=100000)
+    approved: bool = Field(default=False)
 
 
 # ---------------------------------------------------------------------------
@@ -71,15 +65,16 @@ class PluginManager:
         background tasks.
     """
 
-    # Class-level semaphore — shared across all plugin invocations globally.
-    # 16 concurrent plugin slots; adjustable via env var if needed.
-    _semaphore: asyncio.Semaphore = asyncio.Semaphore(
-        int(os.getenv("OPTIMUS_PLUGIN_CONCURRENCY", "16"))
-    )
-
     def __init__(self, plugin_dir: str) -> None:
         self.plugin_dir = plugin_dir
         self.plugins: Dict[str, Dict[str, Any]] = {}
+        self._semaphore_inst: Optional[asyncio.Semaphore] = None
+
+    @property
+    def _semaphore(self) -> asyncio.Semaphore:
+        if self._semaphore_inst is None:
+            self._semaphore_inst = asyncio.Semaphore(int(os.getenv("OPTIMUS_PLUGIN_CONCURRENCY", "16")))
+        return self._semaphore_inst
 
     # ------------------------------------------------------------------
     # Discovery & Loading
@@ -137,7 +132,7 @@ class PluginManager:
         """
         try:
             validated = PluginInput(**args)
-            return validated.model_dump(exclude_unset=False)
+            return validated.model_dump(by_alias=True, exclude_unset=False)
         except ValidationError as exc:
             raise ValueError(f"Plugin argument validation failed: {exc}") from exc
 

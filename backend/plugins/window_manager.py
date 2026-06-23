@@ -12,7 +12,7 @@ import re
 
 def _sanitize_title(title: str) -> str:
     """Strip malicious PowerShell chars."""
-    return re.sub(r"[;'\"|&$\n\r]", "", title)
+    return re.sub(r"[;'\"|&$\n\r`*?]", "", title)
 
 async def execute(args: dict = None) -> str:
     action = args.get("action", "list").lower() if args else "list"
@@ -52,8 +52,8 @@ async def execute(args: dict = None) -> str:
                         [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hWnd);
                     }}
 "@
-                $proc = Get-Process | Where-Object {{ $_.MainWindowTitle -like '*{target}*' }} | Select-Object -First 1
-                if ($proc) {{ [Win32]::SetForegroundWindow($proc.MainWindowHandle) }}
+                $proc = Get-Process | Where-Object {{ $_.MainWindowTitle -like '*{target}*' -and $_.MainWindowHandle -ne 0 }} | Select-Object -First 1
+                if ($proc -and $proc.MainWindowHandle -ne [IntPtr]::Zero) {{ [Win32]::SetForegroundWindow($proc.MainWindowHandle) }}
                 """
                 proc = await asyncio.create_subprocess_exec(
                     "powershell", "-command", ps_cmd,
@@ -64,8 +64,8 @@ async def execute(args: dict = None) -> str:
             
             elif action == "minimize":
                 ps_cmd = f"""
-                $proc = Get-Process | Where-Object {{ $_.MainWindowTitle -like '*{target}*' }} | Select-Object -First 1
-                if ($proc) {{
+                $proc = Get-Process | Where-Object {{ $_.MainWindowTitle -like '*{target}*' -and $_.MainWindowHandle -ne 0 }} | Select-Object -First 1
+                if ($proc -and $proc.MainWindowHandle -ne [IntPtr]::Zero) {{
                     Add-Type @"
                         using System;
                         using System.Runtime.InteropServices;

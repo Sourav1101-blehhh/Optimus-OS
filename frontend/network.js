@@ -98,9 +98,8 @@ export class NetworkManager extends EventTarget {
         this.ws.binaryType = 'arraybuffer'; // ensure binary frames are arraybuffers
 
         this.ws.onopen = () => {
-            // Send the HMAC-compatible password as the auth handshake frame.
-            // v5 backend expects {"password": "..."} instead of {"token": "..."}.
-            this.ws.send(JSON.stringify({ password: this.token }));
+            // The backend expects {"token": "..."}.
+            this.ws.send(JSON.stringify({ token: this.token }));
             this._reconnectAttempt = 0; // Reset backoff on successful connection
             this.dispatchEvent(new CustomEvent('status', { detail: 'Connected' }));
 

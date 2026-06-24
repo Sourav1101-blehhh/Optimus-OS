@@ -1,7 +1,7 @@
-import { WebGLCore } from './webgl_core.js';
-import { NetworkManager } from './network.js';
-import { UIController } from './ui_controller.js';
-import { SpeechManager } from './speech.js';
+import { WebGLCore } from './webgl_core.js?v=4';
+import { NetworkManager } from './network.js?v=4';
+import { UIController } from './ui_controller.js?v=4';
+import { SpeechManager } from './speech.js?v=4';
 
 let network, webgl, ui, speech;
 let accumulatedStream = "";

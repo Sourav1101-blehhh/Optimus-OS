@@ -99,6 +99,17 @@ class PluginManager:
                 module = importlib.import_module(f"backend.plugins.{module_name}")
                 if hasattr(module, "PLUGIN_METADATA") and hasattr(module, "execute"):
                     name = module.PLUGIN_METADATA["name"]
+                    
+                    # Dynamically extract expected arguments from the execute function
+                    try:
+                        import re, inspect
+                        src = inspect.getsource(module.execute)
+                        args = set(re.findall(r'args(?:\[\"|\.get\(\")([a-zA-Z0-9_]+)\"', src))
+                        if args:
+                            module.PLUGIN_METADATA["description"] += f" REQUIRED JSON ARGS: {list(args)}"
+                    except Exception:
+                        pass
+                        
                     self.plugins[name] = {
                         "metadata": module.PLUGIN_METADATA,
                         "execute":  module.execute,

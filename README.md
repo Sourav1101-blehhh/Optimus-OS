@@ -1,218 +1,237 @@
-<div align="center">
+# 🤖 Optimus OS
 
-# ⚡ OPTIMUS OS
+> **A fully local, autonomous AI assistant for Windows — powered by local LLMs, real-time voice, live web access, and a native WebGL UI.**
 
-### *A next-generation, AI-powered desktop environment with a neural-link interface*
-
-[![License: MIT](https://img.shields.io/badge/License-MIT-cyan.svg)](LICENSE)
-[![Python](https://img.shields.io/badge/Python-3.10%2B-blue?logo=python)](https://python.org)
-[![FastAPI](https://img.shields.io/badge/FastAPI-0.100%2B-green?logo=fastapi)](https://fastapi.tiangolo.com)
-[![Status](https://img.shields.io/badge/Status-Active-brightgreen)]()
-
-> *"Not just an assistant. An operating intelligence."*
-
-</div>
-
----
-
-## 🧠 What is Optimus OS?
-
-**Optimus OS** is a self-hosted, AI-driven desktop environment that replaces the traditional GUI with an immersive, cyberpunk-inspired **neural-link interface**. Talk to your computer in natural language, control apps, browse emails, manage your calendar, run code, and monitor your system in real time — all through a single, beautiful glass-morphic dashboard.
-
-It runs **entirely on your machine**, with no subscriptions and no cloud dependency (unless you want one).
+Optimus is a self-hosted AI operating system inspired by J.A.R.V.I.S. It runs entirely on your machine, connects to the internet for live data, and can control your PC — launching apps, managing files, running code, controlling media, reading your screen, and much more — all through natural language.
 
 ---
 
 ## ✨ Features
 
-### 🎨 Interface
-- **Glass-morphic cyberpunk UI** — animated scanlines, neon accents, dark-mode by default
-- **3D CSS parallax dashboard** — the UI subtly reacts to your mouse movements
-- **Real-time telemetry** — live CPU, RAM, and GPU usage visualized as canvas waveforms
-- **WebGL cognitive core** — animated Three.js neural sphere at the center of the dashboard
-- **Drag-and-drop image analysis** — drop any image onto the UI for AI-powered visual analysis
+### 🧠 Multi-Engine AI Brain
+- **Local LLM (Ollama):** Powered by `qwen2.5-coder:7b` (or `llava` for vision tasks) running fully offline via Ollama. No data ever leaves your machine by default.
+- **Gemini Flash Fallback:** If Ollama is unavailable, Optimus automatically falls back to Google Gemini via the `google-genai` SDK.
+- **GPT-4o Support:** Optional OpenAI GPT-4o integration with elevated reasoning effort for debugging tasks.
+- **Multi-modal Vision:** Send screenshots or images directly to the AI using the `llava` model for visual analysis.
 
-### 🤖 AI Core
-- **Local-first** via [Ollama](https://ollama.ai) — no internet required for AI
-- **Cloud fallback** — switch to **Google Gemini** or **DeepSeek** in one click
-- **Streaming responses** — tokens appear in real time, character by character
-- **Long-term memory** — ChromaDB vector database retains and recalls past conversations
+### ⚡ Zero-Latency Semantic Router
+Before passing any command to the LLM, Optimus runs a blazing-fast word-boundary regex intent router. System commands like `open`, `mute`, `volume`, `brightness`, and `screenshot` bypass the AI entirely and execute in milliseconds with no LLM overhead.
 
-### 🎙️ Voice
-- **Offline wake-word detection** — say *"Hey Optimus"* and the system activates
-- **Speech-to-text input** — hands-free command entry
-- **Text-to-speech output** — Optimus speaks its responses back to you
+### 🔌 21 Native OS Plugins
+Every plugin is a self-contained Python module that auto-discovers on startup:
 
-### 🔌 Plugin System (19 built-in plugins)
+| Plugin | Capability |
+|---|---|
+| `app_launcher` | Launch any Windows app by name |
+| `media_control` | Mute/unmute/play/pause/next/prev (kernel-level ctypes) |
+| `web_search` | Live DuckDuckGo + Wikipedia search |
+| `terminal` | Run shell commands in WSL2/PowerShell |
+| `file_system` | Read, write, list, delete, move files |
+| `code_runner` | Execute Python/JS/Bash code in a sandbox |
+| `screenshot` | Capture and analyse the screen |
+| `screen_reader` | Read text from any region of the screen |
+| `desktop_automation` | PyAutoGUI macro sequences |
+| `window_manager` | Focus, resize, tile windows |
+| `system_vitals` | CPU, RAM, GPU, disk telemetry |
+| `clipboard` | Read/write the clipboard |
+| `browser` | Open URLs in the default browser |
+| `memory` | Persistent semantic memory (ChromaDB) |
+| `scheduler` | Schedule tasks (APScheduler) |
+| `notifications` | Send Windows toast notifications |
+| `weather` | Live weather data |
+| `google_calendar` | Read/create Google Calendar events |
+| `google_mail` | Read Gmail inbox |
+| `email_reader` | Generic IMAP email reader |
+| `smart_home` | IoT/smart home device control |
 
-| Plugin | What it does |
-|--------|-------------|
-| `app_launcher` | Open, close, and focus any installed application |
-| `web_search` | Search the web via DuckDuckGo |
-| `browser` | Navigate to URLs and interact with the web |
-| `file_system` | Read, write, list and manage your files |
-| `terminal` | Run shell commands safely with approval prompts |
-| `code_runner` | Execute Python snippets inline |
-| `screenshot` | Capture your screen and analyze it with AI |
-| `media_control` | Play, pause, skip tracks, adjust volume |
-| `google_mail` | Read and summarize unread emails |
-| `google_calendar` | View and create calendar events |
-| `desktop_automation` | Control the mouse and keyboard |
-| `window_manager` | List, switch, and manage open windows |
-| `clipboard` | Read from and write to the clipboard |
-| `memory` | Store and recall notes and facts |
-| `scheduler` | Schedule recurring tasks and reminders |
-| `system_vitals` | Monitor CPU, RAM, GPU and battery |
-| `smart_home` | Control smart-home devices |
-| `weather` | Get live weather for any location |
-| `email_reader` | IMAP email reader |
+### 🎙️ Wake Word + Voice
+- Offline wake-word detection using **Vosk** (`Hey Optimus`)
+- Neural TTS voice output using **Kokoro-ONNX** for near-human speech synthesis
+- Real-time PCM audio streamed directly over WebSocket as binary float32 frames
+
+### 🌐 Stunning WebGL Interface
+- Full **Three.js WebGL** animated orb that pulses in real-time with the AI's token-per-second rate
+- **Markdown rendering** with `marked.js` and code syntax highlighting via `highlight.js`
+- **DOMPurify** XSS sanitisation on all rendered content
+- Glassmorphism dark UI with neon colour palette
+- Progressive Web App (PWA) with offline manifest and service worker
 
 ### 🔐 Security
-- **HMAC-SHA256** master password — never stored in plain text
-- **WebSocket auth handshake** — connections are rejected without a valid token
-- **Approval prompts** — destructive terminal/automation commands require explicit confirmation
-- **`.gitignore` enforced** — `.env`, memory databases, and caches are never committed
+- **HMAC-SHA256** password gateway on every WebSocket connection
+- Auth token cached in `sessionStorage` (never stored on disk)
+- WebSocket rate limiting: 10 messages / 5 seconds per connection
+- Per-connection agent isolation — no shared conversation state between users
+- Maximum payload size enforcement (1 MB)
+- WSL2 sandboxed code execution
+
+### 🧩 Advanced Agent Architecture
+- **Dual-tier semantic cache** per agent instance:
+  - Tier 0: Exact SHA-256 bitmask O(1) lookup
+  - Tier 1: Tri-gram Jaccard similarity (85% threshold)
+- **Autonomous tool-use loop** with up to 5 recursive tool invocations
+- **Ring-buffer conversation history** (fully isolated per connection)
+- Proactive telemetry daemon pushing CPU/RAM at 1 Hz
 
 ---
 
-## 🚀 Getting Started
+## 🛠️ Setup
 
 ### Prerequisites
+- **Windows 10/11** (64-bit)
+- **Python 3.11+**
+- **[Ollama](https://ollama.com/)** installed and running
+- **Node.js** (optional, for frontend dev)
 
-| Tool | Purpose | Link |
-|------|---------|------|
-| Python 3.10+ | Backend runtime | [python.org](https://python.org) |
-| Ollama | Local AI inference | [ollama.ai](https://ollama.ai) |
-| Git | Version control | [git-scm.com](https://git-scm.com) |
-
-### 1. Clone the repository
-
+### 1. Clone the Repository
 ```bash
-git clone https://github.com/YOUR_USERNAME/Optimus-OS.git
-cd Optimus-OS
+git clone https://github.com/yourusername/Optimus.git
+cd Optimus
 ```
 
-### 2. Set up the environment
-
+### 2. Create a Virtual Environment & Install Dependencies
 ```bash
 python -m venv .venv
-.venv\Scripts\activate        # Windows
-# source .venv/bin/activate   # macOS / Linux
-
+.venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
-### 3. Configure your secrets
+### 3. Pull the Local LLM Model
+```bash
+ollama pull qwen2.5-coder:7b
+# Optional: for vision support
+ollama pull llava
+```
 
-Create a `.env` file in the root directory (never commit this!):
-
+### 4. Configure Environment Variables
+Copy `.env.example` to `.env` and fill in your keys:
 ```env
-# Required — your master password for the web interface
-OPTIMUS_MASTER_PASSWORD=your_secure_password_here
-
-# Optional — for cloud AI back-ends
-GEMINI_API_KEY=your_gemini_key
-OPENAI_API_KEY=your_openai_key
-
-# Optional — for email & calendar plugins
-GOOGLE_CLIENT_ID=...
-GOOGLE_CLIENT_SECRET=...
+OPTIMUS_PASSWORD=your_master_password
+GEMINI_API_KEY=your_gemini_api_key        # Optional fallback
+OPENAI_API_KEY=your_openai_api_key        # Optional GPT-4o
+GOOGLE_CREDENTIALS_PATH=credentials.json  # Optional Gmail/Calendar
 ```
 
-### 4. Pull a local AI model (optional but recommended)
-
+### 5. Download Vendor Assets
 ```bash
-ollama pull llama3
+python download_vendor.py
 ```
 
-### 5. Start Optimus
+### 6. (Optional) Set Up Kokoro-ONNX TTS
+Download the model files from [Kokoro-ONNX](https://github.com/thewh1teagle/kokoro-onnx) and place them in the `model/` directory:
+```
+model/
+  kokoro-v1.0.onnx
+  voices.json
+```
 
-**Terminal 1 — Backend:**
+### 7. Run Optimus
 ```bash
-python -m uvicorn backend.main:app --reload
+python run_headless.py
 ```
-
-**Terminal 2 — Frontend:**
-```bash
-cd frontend
-python -m http.server 8080
-```
-
-### 6. Open the interface
-
-Navigate to **[http://127.0.0.1:8080](http://127.0.0.1:8080)** in your browser and enter your master password.
+Open your browser and navigate to `http://localhost:8000`.
 
 ---
 
-## 🏗️ Project Structure
+## 🏗️ Architecture
 
 ```
-Optimus-OS/
+Optimus/
 ├── backend/
+│   ├── main.py              # FastAPI gateway, WebSocket handler, semantic router
 │   ├── core/
-│   │   ├── agent.py           # AI orchestration & memory
-│   │   ├── audio_engine.py    # Wake-word & TTS
-│   │   ├── plugin_manager.py  # Plugin registry
-│   │   └── scheduler.py       # Proactive task scheduler
-│   ├── plugins/               # 19 capability modules
-│   ├── utils/
-│   │   └── google_auth.py     # OAuth2 helper
-│   └── main.py                # FastAPI server & WebSocket gateway
+│   │   ├── agent.py         # AI orchestrator, LLM streaming, tool-use loop
+│   │   ├── audio_engine.py  # Kokoro-ONNX TTS, PCM streaming
+│   │   ├── plugin_manager.py# Auto-discovery and async plugin execution
+│   │   └── scheduler.py     # APScheduler proactive task daemon
+│   └── plugins/             # 21 self-contained OS capability plugins
+│
 ├── frontend/
-│   ├── index.html             # Dashboard layout
-│   ├── styles.css             # Cyberpunk design system
-│   ├── main.js                # App entry point
-│   ├── network.js             # WebSocket lifecycle
-│   ├── ui_controller.js       # UI updates & telemetry rendering
-│   ├── webgl_core.js          # Three.js neural sphere
-│   └── speech.js              # Voice input / output
-├── model/                     # Vosk offline wake-word model
-├── data/                      # Persistent cron jobs
-├── infra/
-│   └── nginx.conf             # Optional reverse-proxy config
-├── .env.example               # Template for secrets
-├── .gitignore
-├── LICENSE
-├── requirements.txt
-└── README.md
+│   ├── index.html           # PWA shell
+│   ├── main.js              # App entrypoint, event orchestration
+│   ├── network.js           # WebSocket manager, exponential backoff reconnect
+│   ├── ui_controller.js     # Chat rendering, markdown, syntax highlighting
+│   ├── webgl_core.js        # Three.js animated orb, TPS-driven amplitude
+│   ├── speech.js            # Web Speech API recognition
+│   └── styles.css           # Glassmorphism dark UI, neon design system
+│
+├── model/                   # Kokoro-ONNX TTS model files
+├── data/                    # Persistent memory, chroma vector store
+└── run_headless.py          # Entry point (Uvicorn server launcher)
+```
+
+### Request Lifecycle
+```
+User speaks / types
+    ↓
+Vosk wake word detection (offline)
+    ↓
+WebSocket → FastAPI gateway (HMAC auth)
+    ↓
+Zero-latency Semantic Router
+    ↓ (fast path)              ↓ (LLM path)
+Direct Plugin Execution    OptimusAgent.process_message_stream()
+    ↓                               ↓
+Instant result              Dual-tier semantic cache check
+                                    ↓ (miss)
+                            Ollama qwen2.5-coder:7b streaming
+                                    ↓ (on error)
+                            Gemini Flash fallback
+                                    ↓
+                            JSON tool-call extraction
+                                    ↓ (if tool detected)
+                            Autonomous tool-use loop (max 5)
+                                    ↓
+Kokoro-ONNX TTS → PCM binary frames over WebSocket
+    ↓
+Browser AudioContext plays response
+WebGL orb pulses at token rate
 ```
 
 ---
 
-## 🌐 AI Engine Selection
+## 💬 Example Commands
 
-Switch between AI backends from the dropdown in the top-right corner of the UI:
-
-| Engine | Provider | Requires |
-|--------|----------|---------|
-| **LOCAL** | Ollama (default) | Ollama running locally |
-| **GEMINI** | Google | `GEMINI_API_KEY` in `.env` |
-| **DEEPSEEK** | DeepSeek/OpenAI API | `OPENAI_API_KEY` in `.env` |
+```
+"Open Spotify"
+"Mute the system volume"
+"Search the web for the population of India"
+"Take a screenshot and describe what you see"
+"Run this Python script: print('Hello World')"
+"What files are in my Downloads folder?"
+"Set a reminder for 6pm to call mom"
+"What's the weather like in Mumbai?"
+"Read my latest emails"
+"Open YouTube in the browser"
+"Increase the volume by 20%"
+"What's my CPU and RAM usage?"
+```
 
 ---
 
-## 🤝 Contributing
+## 🧪 Tech Stack
 
-Pull requests are welcome! For major changes, please open an issue first to discuss what you'd like to change.
-
-1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/amazing-plugin`)
-3. Commit your changes (`git commit -m 'Add amazing plugin'`)
-4. Push the branch (`git push origin feature/amazing-plugin`)
-5. Open a Pull Request
+| Layer | Technology |
+|---|---|
+| **Backend** | Python 3.11, FastAPI, Uvicorn, asyncio |
+| **AI Inference** | Ollama (local), Google Gemini Flash, OpenAI GPT-4o |
+| **Local LLM** | qwen2.5-coder:7b, llava (vision) |
+| **TTS** | Kokoro-ONNX |
+| **Wake Word** | Vosk |
+| **Vector Memory** | ChromaDB |
+| **Task Scheduling** | APScheduler |
+| **OS Automation** | ctypes (Win32 API), subprocess, pyautogui |
+| **Frontend** | Vanilla HTML/CSS/JS, Three.js, marked.js, highlight.js |
+| **Security** | HMAC-SHA256, DOMPurify |
 
 ---
 
 ## 📄 License
 
-This project is licensed under the **MIT License** — see the [LICENSE](LICENSE) file for details.
+MIT License — see [LICENSE](LICENSE) for details.
 
 ---
 
 <div align="center">
-
-**Built with ❤️ by a human who wanted their computer to think.**
-
-*Star ⭐ this repo if Optimus blew your mind.*
-
+  <strong>Built with ❤️ as a fully local, privacy-first AI assistant.</strong><br>
+  <em>No cloud required. Everything runs on your machine.</em>
 </div>

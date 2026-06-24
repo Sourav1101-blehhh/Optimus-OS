@@ -29,14 +29,21 @@ async def execute(args: dict = None) -> str:
         results.append(f"[DDG Error] {e}")
         
     try:
+        import urllib.parse
+        encoded_query = urllib.parse.quote(query)
         async with httpx.AsyncClient() as client:
-            wiki_res = await client.get(f"https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch={query}&utf8=&format=json", timeout=5.0)
-            wiki_data = wiki_res.json()
-            search_items = wiki_data.get("query", {}).get("search", [])[:max_results]
-            for r in search_items:
-                import re
-                snippet = re.sub(r'<[^>]+>', '', r.get('snippet', ''))
-                results.append(f"[Wikipedia] Title: {r.get('title')}\nSnippet: {snippet}")
+            wiki_res = await client.get(
+                f"https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch={encoded_query}&utf8=&format=json",
+                timeout=5.0,
+                headers={"User-Agent": "OptimusBot/1.0 (optimus@example.com)"}
+            )
+            if wiki_res.status_code == 200:
+                wiki_data = wiki_res.json()
+                search_items = wiki_data.get("query", {}).get("search", [])[:max_results]
+                for r in search_items:
+                    import re
+                    snippet = re.sub(r'<[^>]+>', '', r.get('snippet', ''))
+                    results.append(f"[Wikipedia] Title: {r.get('title')}\nSnippet: {snippet}")
     except Exception as e:
         pass
         

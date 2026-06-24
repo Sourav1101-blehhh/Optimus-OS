@@ -95,6 +95,7 @@ export class NetworkManager extends EventTarget {
         }
 
         this.ws = new WebSocket(this.wsUrl);
+        this.ws.binaryType = 'arraybuffer'; // ensure binary frames are arraybuffers
 
         this.ws.onopen = () => {
             // Send the HMAC-compatible password as the auth handshake frame.
@@ -102,11 +103,44 @@ export class NetworkManager extends EventTarget {
             this.ws.send(JSON.stringify({ password: this.token }));
             this._reconnectAttempt = 0; // Reset backoff on successful connection
             this.dispatchEvent(new CustomEvent('status', { detail: 'Connected' }));
+
+            // Initialize AudioContext on connection
+            if (!this.audioContext) {
+                this.audioContext = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 24000 });
+                this.nextAudioTime = 0;
+            }
         };
 
         this.ws.onmessage = (event) => {
+            if (typeof event.data !== 'string') {
+                // Handle binary float32 PCM data
+                if (!this.audioContext) return;
+                
+                const float32Data = new Float32Array(event.data);
+                const buffer = this.audioContext.createBuffer(1, float32Data.length, 24000);
+                buffer.getChannelData(0).set(float32Data);
+                
+                const source = this.audioContext.createBufferSource();
+                source.buffer = buffer;
+                source.connect(this.audioContext.destination);
+                
+                const currentTime = this.audioContext.currentTime;
+                if (this.nextAudioTime < currentTime) {
+                    this.nextAudioTime = currentTime;
+                }
+                source.start(this.nextAudioTime);
+                this.nextAudioTime += buffer.duration;
+                return;
+            }
+
+            let data;
             try {
-                const data = JSON.parse(event.data);
+                data = JSON.parse(event.data);
+            } catch (_parseErr) {
+                data = null;
+            }
+
+            if (data && typeof data === 'object' && data.type) {
                 switch (data.type) {
                     case 'telemetry':
                         this.dispatchEvent(new CustomEvent('telemetry', { detail: data }));
@@ -124,7 +158,6 @@ export class NetworkManager extends EventTarget {
                         this.dispatchEvent(new CustomEvent('stream_end'));
                         break;
                     case 'tool_depth_exceeded':
-                        // Structured warning from the agent's depth guard
                         this.dispatchEvent(new CustomEvent('tool_depth_exceeded', { detail: data.message }));
                         break;
                     case 'log':
@@ -136,8 +169,8 @@ export class NetworkManager extends EventTarget {
                     default:
                         console.warn('[Optimus] Unknown message type:', data.type);
                 }
-            } catch (_parseErr) {
-                // Not JSON — treat as a raw streaming token from LLM
+            } else {
+                // Not a structured JSON object — treat as a raw streaming token from LLM
                 this._tvCount++;
                 this.dispatchEvent(new CustomEvent('token', { detail: event.data }));
             }

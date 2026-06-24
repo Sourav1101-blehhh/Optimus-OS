@@ -1,4 +1,4 @@
-import pyautogui
+import ctypes
 
 PLUGIN_METADATA = {
     "name": "media_control",
@@ -6,13 +6,35 @@ PLUGIN_METADATA = {
     "keywords": ["volume", "mute", "unmute", "play", "pause", "next", "previous", "stop", "music", "media"]
 }
 
+# Windows Virtual Key Codes
+VK_CODES = {
+    "playpause": 0xB3,
+    "nexttrack": 0xB0,
+    "prevtrack": 0xB1,
+    "stop": 0xB2,
+    "volumemute": 0xAD,
+    "volumeup": 0xAF,
+    "volumedown": 0xAE
+}
+
 def execute(args: dict = None) -> str:
-    if not args or "action" not in args:
-        return "Error: Please provide an 'action' (e.g., 'playpause', 'nexttrack', 'prevtrack', 'volumemute', 'volumeup', 'volumedown')."
+    if not args:
+        return "Error: Please provide an 'action' (e.g., 'play', 'pause', 'mute')."
     
-    action = args["action"].lower().replace("_", "").replace(" ", "")
+    action = args.get("action")
+    if not action:
+        cmd = args.get("command", args.get("query", "")).lower().strip()
+        for prefix in ["volume ", "mute", "unmute", "play", "pause", "next", "previous", "stop"]:
+            if cmd.startswith(prefix):
+                action = cmd.split()[0] if "volume" not in prefix else cmd.replace(" ", "")
+                break
+                
+    if not action:
+        return "Error: Please provide an 'action'."
+        
+    action = action.lower().replace("_", "").replace(" ", "")
     
-    # Map friendly names to pyautogui key names
+    # Map friendly names to actual actions
     action_map = {
         "play": "playpause",
         "pause": "playpause",
@@ -33,15 +55,21 @@ def execute(args: dict = None) -> str:
     mapped_action = action_map.get(action)
     
     if not mapped_action:
-        return f"Error: Unknown action '{action}'. Valid actions: {list(action_map.keys())}"
+        return f"Error: Unknown action '{action}'."
         
     try:
+        vk_code = VK_CODES[mapped_action]
+        
+        def press_key(code):
+            ctypes.windll.user32.keybd_event(code, 0, 0, 0)
+            ctypes.windll.user32.keybd_event(code, 0, 2, 0)
+            
         if mapped_action == "volumeup":
-            for _ in range(5): pyautogui.press("volumeup")
+            for _ in range(5): press_key(vk_code)
         elif mapped_action == "volumedown":
-            for _ in range(5): pyautogui.press("volumedown")
+            for _ in range(5): press_key(vk_code)
         else:
-            pyautogui.press(mapped_action)
+            press_key(vk_code)
             
         return f"Successfully executed media action: {mapped_action}"
     except Exception as e:

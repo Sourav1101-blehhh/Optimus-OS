@@ -9,6 +9,10 @@ const ASSETS_TO_CACHE = [
   './webgl_core.js',
   './speech.js',
   './manifest.json',
+  './static/vendor/three.min.js',
+  './static/vendor/marked.min.js',
+  './static/vendor/purify.min.js',
+  './static/vendor/highlight.min.js',
   'https://fonts.googleapis.com/css2?family=Orbitron:wght@400;500;700;900&family=Share+Tech+Mono&family=Outfit:wght@300;400;600&display=swap'
 ];
 

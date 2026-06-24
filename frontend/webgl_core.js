@@ -1,8 +1,3 @@
-import * as THREE from 'https://esm.sh/three@0.136.0';
-import { EffectComposer } from 'https://esm.sh/three@0.136.0/examples/jsm/postprocessing/EffectComposer.js';
-import { RenderPass } from 'https://esm.sh/three@0.136.0/examples/jsm/postprocessing/RenderPass.js';
-import { UnrealBloomPass } from 'https://esm.sh/three@0.136.0/examples/jsm/postprocessing/UnrealBloomPass.js';
-
 export class WebGLCore {
     constructor(containerId, canvasId) {
         this.container = document.getElementById(containerId);
@@ -17,42 +12,48 @@ export class WebGLCore {
         this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
         this.renderer.setSize(this.container.clientWidth, this.container.clientHeight);
 
-        // Lighting
-        this.ambientLight = new THREE.AmbientLight(0xffffff, 0.4);
-        this.scene.add(this.ambientLight);
-
-        this.pointLight1 = new THREE.PointLight(0x00f3ff, 2, 50);
-        this.pointLight1.position.set(5, 5, 5);
-        this.scene.add(this.pointLight1);
-
-        this.pointLight2 = new THREE.PointLight(0xff0055, 2, 50);
-        this.pointLight2.position.set(-5, -5, 5);
-        this.scene.add(this.pointLight2);
-
         this.coreGroup = new THREE.Group();
         this.scene.add(this.coreGroup);
 
-        // Post-Processing Bloom
-        this.renderScene = new RenderPass(this.scene, this.camera);
-        this.bloomPass = new UnrealBloomPass(
-            new THREE.Vector2(this.container.clientWidth, this.container.clientHeight),
-            1.5, // strength
-            0.4, // radius
-            0.85 // threshold
-        );
-        this.composer = new EffectComposer(this.renderer);
-        this.composer.addPass(this.renderScene);
-        this.composer.addPass(this.bloomPass);
+        // AI State lerp targets
+        this.stateColors = {
+            IDLE: { c1: new THREE.Color(0x00f3ff), c2: new THREE.Color(0x0088ff), c3: new THREE.Color(0x002244) },
+            THINKING: { c1: new THREE.Color(0xff00ff), c2: new THREE.Color(0x8a2be2), c3: new THREE.Color(0x4a0082) },
+            STREAMING: { c1: new THREE.Color(0x00ffff), c2: new THREE.Color(0x00f3ff), c3: new THREE.Color(0xff0055) }
+        };
+        
+        this.currentColor1 = this.stateColors.IDLE.c1.clone();
+        this.currentColor2 = this.stateColors.IDLE.c2.clone();
+        this.currentColor3 = this.stateColors.IDLE.c3.clone();
+        this.targetColor1 = this.stateColors.IDLE.c1.clone();
+        this.targetColor2 = this.stateColors.IDLE.c2.clone();
+        this.targetColor3 = this.stateColors.IDLE.c3.clone();
+        
+        this.currentState = 'IDLE';
 
         this.setupOrb();
         this.setupParticles();
 
-        // Telemetry tracking
         this.targetAmplitude = 0;
         this.currentAmplitude = 0;
 
         this._resizeHandler = this.onWindowResize.bind(this);
         window.addEventListener('resize', this._resizeHandler);
+    }
+
+    setAIState(state, tps = 0) {
+        if (this.stateColors[state]) {
+            this.currentState = state;
+            this.targetColor1.copy(this.stateColors[state].c1);
+            this.targetColor2.copy(this.stateColors[state].c2);
+            this.targetColor3.copy(this.stateColors[state].c3);
+        }
+        // Normalize TPS to an amplitude
+        this.targetAmplitude = Math.min(tps / 30.0, 1.0);
+    }
+
+    setTelemetry(amplitude) {
+        this.targetAmplitude = amplitude;
     }
 
     setupOrb() {
@@ -126,9 +127,9 @@ export class WebGLCore {
                 
                 gl_Position = projectionMatrix * viewMatrix * worldPosition;
             }
-        `;
+        \`;
 
-        const fragmentShaderCode = `
+        const fragmentShaderCode = \`
             uniform float uTime;
             uniform float uAmplitude;
             uniform vec3 uColorCyan;
@@ -139,42 +140,35 @@ export class WebGLCore {
             varying vec3 vEyeVector;
 
             void main() {
-                // Glassmorphism Refraction & Chromatic Aberration
                 float ior = 1.15;
                 vec3 refracted = refract(vEyeVector, vNormal, 1.0 / ior);
                 
-                // Color shifts based on time and position
                 float mixVal1 = sin(vPosition.x * 0.4 + uTime * 0.6) * 0.5 + 0.5;
                 float mixVal2 = cos(vPosition.y * 0.4 - uTime * 0.4) * 0.5 + 0.5;
 
-                // When thinking, colors shift to deep purples/pinks and brighten
                 vec3 colorBlend = mix(uColorCyan, uColorMagenta, mixVal1 + uAmplitude * 0.5);
                 vec3 finalColor = mix(colorBlend, uColorPurple, mixVal2);
 
-                // High Fresnel effect for glass look
                 float fresnel = pow(1.0 + dot(vEyeVector, vNormal), 3.0);
-                
-                // Add inner glow
                 float glow = pow(1.0 - max(dot(vNormal, vec3(0.0, 0.0, 1.0)), 0.0), 2.0);
                 
                 finalColor += vec3(fresnel * 0.9) * uColorCyan;
                 finalColor += vec3(glow * 0.5) * uColorMagenta;
                 
-                // Opacity pulses slightly when active
                 float alpha = 0.5 + fresnel * 0.5 + uAmplitude * 0.2;
 
                 gl_FragColor = vec4(finalColor, min(alpha, 1.0));
             }
-        `;
+        \`;
 
         this.orbUniforms = {
             uTime: { value: 0.0 },
             uAmplitude: { value: 0.0 },
             uNoiseIntensity: { value: 0.18 },
             uNoiseSpeed: { value: 0.6 },
-            uColorCyan: { value: new THREE.Color(0x00f3ff) },
-            uColorMagenta: { value: new THREE.Color(0xff0055) },
-            uColorPurple: { value: new THREE.Color(0x8a2be2) }
+            uColorCyan: { value: this.currentColor1 },
+            uColorMagenta: { value: this.currentColor2 },
+            uColorPurple: { value: this.currentColor3 }
         };
 
         const geometry = new THREE.IcosahedronGeometry(2.5, 128);
@@ -225,10 +219,6 @@ export class WebGLCore {
         this.scene.add(this.particles);
     }
 
-    setTelemetry(amplitude) {
-        this.targetAmplitude = amplitude;
-    }
-
     onWindowResize() {
         if (!this.container) return;
         const w = this.container.clientWidth;
@@ -238,15 +228,10 @@ export class WebGLCore {
         this.camera.aspect = w / h;
         this.camera.updateProjectionMatrix();
         this.renderer.setSize(w, h);
-        this.composer.setSize(w, h);
-        if (this.bloomPass) {
-            this.bloomPass.resolution.set(w, h);
-        }
     }
 
     destroy() {
         window.removeEventListener('resize', this._resizeHandler);
-        
         if (this.orb) {
             this.orb.geometry.dispose();
             this.orb.material.dispose();
@@ -255,7 +240,6 @@ export class WebGLCore {
             this.particles.geometry.dispose();
             this.particles.material.dispose();
         }
-        
         if (this.renderer) {
             this.renderer.dispose();
             this.renderer.forceContextLoss();
@@ -264,24 +248,36 @@ export class WebGLCore {
     }
 
     render(time) {
-        // Smoothly interpolate amplitude
         this.currentAmplitude += (this.targetAmplitude - this.currentAmplitude) * 0.1;
+        
+        // Lerp colors
+        this.currentColor1.lerp(this.targetColor1, 0.05);
+        this.currentColor2.lerp(this.targetColor2, 0.05);
+        this.currentColor3.lerp(this.targetColor3, 0.05);
         
         this.orbUniforms.uTime.value = time * 0.001;
         this.orbUniforms.uAmplitude.value = this.currentAmplitude;
         
-        // Exaggerate the deformation
-        this.orbUniforms.uNoiseIntensity.value = 0.18 + this.currentAmplitude * (1.2 - 0.18);
-        this.orbUniforms.uNoiseSpeed.value = 0.4 + this.currentAmplitude * (6.5 - 0.4);
+        let targetIntensity = 0.18;
+        let targetSpeed = 0.4;
+        
+        if (this.currentState === 'THINKING') {
+            targetIntensity = 0.3;
+            targetSpeed = 1.5;
+        } else if (this.currentState === 'STREAMING') {
+            targetIntensity = 0.2 + this.currentAmplitude * 0.8;
+            targetSpeed = 1.0 + this.currentAmplitude * 5.5;
+        }
+        
+        this.orbUniforms.uNoiseIntensity.value += (targetIntensity - this.orbUniforms.uNoiseIntensity.value) * 0.05;
+        this.orbUniforms.uNoiseSpeed.value += (targetSpeed - this.orbUniforms.uNoiseSpeed.value) * 0.05;
 
         this.orb.rotation.y += 0.003 + this.currentAmplitude * 0.02;
         this.orb.rotation.x += 0.002 + this.currentAmplitude * 0.01;
 
-        // Update particles
         if (this.particles) {
             const positions = this.particles.geometry.attributes.position.array;
             const speedMultiplier = 1.0 + (this.currentAmplitude * 5.0);
-            
             for (let i = 0; i < positions.length / 3; i++) {
                 positions[i * 3] += this.particleVelocities[i].x * speedMultiplier;
                 positions[i * 3 + 1] += this.particleVelocities[i].y * speedMultiplier;
@@ -295,9 +291,6 @@ export class WebGLCore {
             this.particles.rotation.y += 0.001 * speedMultiplier;
         }
 
-        // React bloom to amplitude
-        this.bloomPass.strength = 1.5 + (this.currentAmplitude * 2.0);
-
-        this.composer.render();
+        this.renderer.render(this.scene, this.camera);
     }
 }

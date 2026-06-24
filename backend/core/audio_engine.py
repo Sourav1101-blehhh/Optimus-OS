@@ -38,40 +38,83 @@ def get_wake_queue() -> asyncio.Queue:
     return WAKE_EVENT_QUEUE
 
 # --- TTS Subsystem ---
-# For a true Kokoro-82M ONNX pipeline, you would use:
-# from kokoro_onnx import Kokoro
-# kokoro_model = Kokoro("model.onnx", "voices.json")
-# We implement a robust streaming simulator/wrapper here that represents the
-# exact API surface.
 
-async def stream_neural_tts(text: str) -> AsyncGenerator[bytes, None]:
+import re
+
+kokoro_model = None
+kokoro_available = False
+try:
+    from kokoro_onnx import Kokoro
+    # Try loading the model if it exists
+    model_path = os.path.join(os.path.dirname(__file__), "..", "..", "model", "kokoro.onnx")
+    voices_path = os.path.join(os.path.dirname(__file__), "..", "..", "model", "voices.json")
+    if os.path.exists(model_path) and os.path.exists(voices_path):
+        kokoro_model = Kokoro(model_path, voices_path)
+        kokoro_available = True
+        logger.info("Kokoro-ONNX model loaded successfully.")
+    else:
+        logger.warning("Kokoro-ONNX model files not found. Using TTS fallback.")
+except ImportError:
+    logger.warning("kokoro_onnx not installed. Using TTS fallback.")
+
+async def text_processor(text_stream: AsyncGenerator[str, None]) -> AsyncGenerator[str, None]:
+    buffer = ""
+    async for token in text_stream:
+        buffer += token
+        # Split by sentence boundaries (. ! ? \n)
+        parts = re.split(r'([.!?\n]+)', buffer)
+        
+        # If there are multiple parts, yield the complete sentences
+        if len(parts) > 1:
+            for i in range(0, len(parts) - 1, 2):
+                sentence = parts[i] + parts[i+1]
+                sentence = sentence.strip()
+                if sentence:
+                    yield sentence
+            buffer = parts[-1]
+            
+    if buffer.strip():
+        yield buffer.strip()
+
+async def stream_neural_tts(text_stream: AsyncGenerator[str, None]) -> AsyncGenerator[bytes, None]:
     """
     Streams near-human phonemes chunk-by-chunk under 50ms latency.
-    Yields raw audio/mpeg or linear PCM binary arrays.
+    Yields float32 PCM binary arrays.
     """
-    # If Kokoro ONNX is installed and initialized, it would look like:
-    # async for chunk in kokoro_model.create_stream(text, voice="af_heart"):
-    #     yield chunk.tobytes()
-    
-    # Fallback simulation of chunked binary audio stream.
-    # We yield tiny chunks of silence/noise to represent the byte stream
-    # so the frontend AudioContext pipeline can be fully tested.
-    logger.info(f"TTS Engine synthesizing: {text[:30]}...")
-    
-    sample_rate = 24000
-    duration_ms = 100
-    samples_per_chunk = int(sample_rate * (duration_ms / 1000.0))
-    
-    # Simulate processing delay (latency boundary)
-    await asyncio.sleep(0.05)
-    
-    # 5 chunks of synthesized data
-    for _ in range(5):
-        # Generate 16-bit PCM silence/soft noise
-        chunk = np.random.normal(0, 0.01, samples_per_chunk).astype(np.float32)
-        pcm16 = (chunk * 32767).astype(np.int16)
-        yield pcm16.tobytes()
-        await asyncio.sleep(0.1)
+    async for sentence in text_processor(text_stream):
+        if not sentence:
+            continue
+            
+        logger.info(f"TTS Engine synthesizing: {sentence[:30]}...")
+        
+        if kokoro_available and kokoro_model is not None:
+            try:
+                # kokoro_model.create_stream yields chunks as numpy arrays
+                stream = kokoro_model.create_stream(sentence, voice="af_heart")
+                # Handle both async and sync generator from kokoro
+                if hasattr(stream, '__aiter__'):
+                    async for chunk in stream:
+                        yield chunk.tobytes()
+                else:
+                    for chunk in stream:
+                        yield chunk.tobytes()
+                        await asyncio.sleep(0.001)
+                continue
+            except Exception as e:
+                logger.error(f"Kokoro stream failed: {e}")
+                # Fallthrough to fallback
+        
+        # Fallback simulation
+        sample_rate = 24000
+        duration_ms = 100
+        samples_per_chunk = int(sample_rate * (duration_ms / 1000.0))
+        
+        await asyncio.sleep(0.05)
+        
+        for _ in range(5):
+            chunk = np.random.normal(0, 0.01, samples_per_chunk).astype(np.float32)
+            yield chunk.tobytes()
+            await asyncio.sleep(0.1)
 
 # --- Wake-Word Subsystem ---
 class WakeWordDaemon:

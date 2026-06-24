@@ -1,4 +1,5 @@
-import subprocess
+import ctypes
+import asyncio
 import re
 
 PLUGIN_METADATA = {
@@ -7,91 +8,79 @@ PLUGIN_METADATA = {
     "keywords": ["window", "focus", "minimize", "close", "switch", "alt tab", "running", "active"]
 }
 
-import asyncio
-import re
+user32 = ctypes.windll.user32
 
-def _sanitize_title(title: str) -> str:
-    """Strip malicious PowerShell chars."""
-    return re.sub(r"[;'\"|&$\n\r`*?]", "", title)
+SW_MINIMIZE = 6
+WM_CLOSE = 0x0010
+
+WNDENUMPROC = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_int, ctypes.POINTER(ctypes.c_int))
+
+def _get_window_text(hwnd):
+    length = user32.GetWindowTextLengthW(hwnd)
+    if length > 0:
+        buff = ctypes.create_unicode_buffer(length + 1)
+        user32.GetWindowTextW(hwnd, buff, length + 1)
+        return buff.value
+    return ""
+
+def _is_visible(hwnd):
+    return user32.IsWindowVisible(hwnd)
 
 async def execute(args: dict = None) -> str:
     action = args.get("action", "list").lower() if args else "list"
     
     if action == "list":
         try:
-            proc = await asyncio.create_subprocess_exec(
-                "powershell", "-command",
-                "Get-Process | Where-Object {$_.MainWindowTitle -ne ''} | Select-Object ProcessName, MainWindowTitle | Format-Table -AutoSize",
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE
-            )
-            stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=10.0)
-            windows = stdout.decode('utf-8').strip() if stdout else ""
+            windows = []
+            def enum_cb(hwnd, lParam):
+                if _is_visible(hwnd):
+                    title = _get_window_text(hwnd)
+                    if title:
+                        windows.append(title)
+                return True
+                
+            user32.EnumWindows(WNDENUMPROC(enum_cb), 0)
             
             if windows:
-                return f"Currently open windows:\n{windows}"
+                return f"Currently open windows:\n" + "\n".join(windows)
             else:
                 return "No visible windows found."
         except Exception as e:
             return f"Error listing windows: {e}"
-    
+            
     elif action in ["focus", "minimize", "close"]:
         raw_target = args.get("title", "")
         if not raw_target:
             return "Error: Provide a 'title' argument to identify the target window."
             
-        target = _sanitize_title(raw_target)
+        target = raw_target.lower()
+        target_hwnd = [0]
         
+        def enum_cb(hwnd, lParam):
+            if _is_visible(hwnd):
+                title = _get_window_text(hwnd)
+                if title and target in title.lower():
+                    target_hwnd[0] = hwnd
+                    return False
+            return True
+            
+        user32.EnumWindows(WNDENUMPROC(enum_cb), 0)
+        hwnd = target_hwnd[0]
+        
+        if not hwnd:
+            return f"No visible window found matching: '{raw_target}'"
+            
         try:
             if action == "focus":
-                ps_cmd = f"""
-                Add-Type @"
-                    using System;
-                    using System.Runtime.InteropServices;
-                    public class Win32 {{
-                        [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hWnd);
-                    }}
-"@
-                $proc = Get-Process | Where-Object {{ $_.MainWindowTitle -like '*{target}*' -and $_.MainWindowHandle -ne 0 }} | Select-Object -First 1
-                if ($proc -and $proc.MainWindowHandle -ne [IntPtr]::Zero) {{ [Win32]::SetForegroundWindow($proc.MainWindowHandle) }}
-                """
-                proc = await asyncio.create_subprocess_exec(
-                    "powershell", "-command", ps_cmd,
-                    stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
-                )
-                await asyncio.wait_for(proc.communicate(), timeout=5.0)
-                return f"Focused window matching: '{target}'"
-            
+                user32.SetForegroundWindow(hwnd)
+                return f"Focused window matching: '{raw_target}'"
             elif action == "minimize":
-                ps_cmd = f"""
-                $proc = Get-Process | Where-Object {{ $_.MainWindowTitle -like '*{target}*' -and $_.MainWindowHandle -ne 0 }} | Select-Object -First 1
-                if ($proc -and $proc.MainWindowHandle -ne [IntPtr]::Zero) {{
-                    Add-Type @"
-                        using System;
-                        using System.Runtime.InteropServices;
-                        public class Win32Min {{
-                            [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
-                        }}
-"@
-                    [Win32Min]::ShowWindow($proc.MainWindowHandle, 6)
-                }}
-                """
-                proc = await asyncio.create_subprocess_exec(
-                    "powershell", "-command", ps_cmd,
-                    stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
-                )
-                await asyncio.wait_for(proc.communicate(), timeout=5.0)
-                return f"Minimized window matching: '{target}'"
-            
+                user32.ShowWindow(hwnd, SW_MINIMIZE)
+                return f"Minimized window matching: '{raw_target}'"
             elif action == "close":
-                ps_cmd = f"Get-Process | Where-Object {{ $_.MainWindowTitle -like '*{target}*' }} | Stop-Process -Force"
-                proc = await asyncio.create_subprocess_exec(
-                    "powershell", "-command", ps_cmd,
-                    stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
-                )
-                await asyncio.wait_for(proc.communicate(), timeout=5.0)
-                return f"Closed window matching: '{target}'"
+                user32.PostMessageW(hwnd, WM_CLOSE, 0, 0)
+                return f"Closed window matching: '{raw_target}'"
         except Exception as e:
-            return f"Error performing {action} on '{target}': {e}"
-    
+            return f"Error performing {action} on '{raw_target}': {e}"
+
     return f"Unknown action: {action}"

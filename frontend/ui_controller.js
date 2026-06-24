@@ -1,3 +1,99 @@
+class KineticTelemetryDisplay {
+    constructor(canvas, isRam = false) {
+        this.canvas = canvas;
+        this.ctx = canvas ? canvas.getContext('2d') : null;
+        this.isRam = isRam;
+        this.history = new Array(50).fill(0);
+        this.currentValue = 0;
+        this.targetValue = 0;
+        
+        if (this.canvas) {
+            this.loop = this.loop.bind(this);
+            requestAnimationFrame(this.loop);
+        }
+    }
+    
+    update(value) {
+        this.targetValue = value;
+        this.history.push(value);
+        if (this.history.length > 50) this.history.shift();
+    }
+    
+    loop() {
+        requestAnimationFrame(this.loop);
+        if (!this.ctx || !this.canvas) return;
+        
+        // Lerp
+        this.currentValue += (this.targetValue - this.currentValue) * 0.08;
+        
+        const ctx = this.ctx;
+        const w = this.canvas.width;
+        const h = this.canvas.height;
+        
+        ctx.clearRect(0, 0, w, h);
+        
+        ctx.strokeStyle = this.isRam ? 'rgba(255, 0, 85, 0.8)' : 'rgba(0, 243, 255, 0.8)';
+        ctx.lineWidth = 2;
+        ctx.lineJoin = 'round';
+        ctx.beginPath();
+        
+        const step = w / 49;
+        
+        // Exact text overlay for current telemetry
+        ctx.fillStyle = ctx.strokeStyle;
+        ctx.font = '12px monospace';
+        const dataKey = this.isRam ? 'RAM' : 'CPU';
+        ctx.fillText(`${dataKey}: ${this.targetValue.toFixed(1)}%`, 5, 15);
+        
+        for (let i = 0; i < 50; i++) {
+            const val = this.history[i] || 0;
+            // Draw using exact history but lerped current value for the last point
+            const displayVal = (i === 49) ? this.currentValue : val;
+            const x = i * step;
+            const y = h - (displayVal / 100) * (h - 20) - 10;
+            
+            // Mouse Parallax Repulsion
+            let interactiveY = y;
+            if (this.canvas.mouseX > 0) {
+                const dist = Math.max(0, 80 - Math.abs(this.canvas.mouseX - x));
+                interactiveY -= dist * 0.2; // Bend upwards
+            }
+            
+            if (i === 0) ctx.moveTo(x, interactiveY);
+            else ctx.lineTo(x, interactiveY);
+        }
+        
+        ctx.stroke();
+        
+        // Gradient body
+        ctx.lineTo(w, h);
+        ctx.lineTo(0, h);
+        ctx.closePath();
+        
+        const gradient = ctx.createLinearGradient(0, 0, 0, h);
+        if (this.isRam) {
+            gradient.addColorStop(0, 'rgba(255, 0, 85, 0.2)');
+            gradient.addColorStop(1, 'rgba(255, 0, 85, 0)');
+        } else {
+            gradient.addColorStop(0, 'rgba(0, 243, 255, 0.2)');
+            gradient.addColorStop(1, 'rgba(0, 243, 255, 0)');
+        }
+        ctx.fillStyle = gradient;
+        ctx.fill();
+        
+        // Glowing dot at the end
+        const endY = h - (this.currentValue / 100) * (h - 20) - 10;
+        ctx.fillStyle = ctx.strokeStyle;
+        ctx.beginPath();
+        ctx.arc(w - 2, endY, 3, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.shadowBlur = 10;
+        ctx.shadowColor = ctx.strokeStyle;
+        ctx.fill();
+        ctx.shadowBlur = 0;
+    }
+}
+
 export class UIController {
     constructor() {
         this.statusEl = document.getElementById('conn-text');
@@ -13,13 +109,12 @@ export class UIController {
         this.resizeCanvas();
         window.addEventListener('resize', () => this.resizeCanvas());
         
-        this.history = []; // Max 50 points
-        this.cpu = 0;
-        this.ram = 0;
-
         // Interactive mouse tracking
         this.setupInteractivity(this.cpuCanvas);
         this.setupInteractivity(this.ramCanvas);
+        
+        this.cpuTracker = new KineticTelemetryDisplay(this.cpuCanvas, false);
+        this.ramTracker = new KineticTelemetryDisplay(this.ramCanvas, true);
         
         // Panel Toggles
         const toggleL = document.getElementById('toggle-l-btn');
@@ -44,8 +139,6 @@ export class UIController {
                 dashboard.style.setProperty('--tilt-y', `${y}deg`);
             }
         });
-
-        this.drawTelemetry();
     }
 
     setupInteractivity(canvas) {
@@ -159,15 +252,13 @@ export class UIController {
         }
     }
 
-    updateTelemetry(cpu, ram, disk = 0, net_up = 0, net_down = 0) {
-        this.cpu = cpu;
-        this.ram = ram;
+    updateMetrics(cpu, ram) {
+        if (this.cpuTracker) this.cpuTracker.update(cpu);
+        if (this.ramTracker) this.ramTracker.update(ram);
         
         // Update DOM text fields directly
         const cpuText = document.getElementById('cpu-text');
         const ramText = document.getElementById('ram-text');
-        const diskText = document.getElementById('disk-text');
-        const netText = document.getElementById('net-text');
         
         if (cpuText) {
             cpuText.innerText = `${cpu.toFixed(1)}%`;
@@ -177,6 +268,13 @@ export class UIController {
             ramText.innerText = `${ram.toFixed(1)}%`;
             ramText.style.color = ram > 90 ? '#ff0055' : '';
         }
+    }
+    
+    // Backwards compatibility alias for existing network code
+    updateTelemetry(cpu, ram, disk = 0, net_up = 0, net_down = 0) {
+        this.updateMetrics(cpu, ram);
+        const diskText = document.getElementById('disk-text');
+        const netText = document.getElementById('net-text');
         if (diskText) {
             diskText.innerText = `${disk.toFixed(1)}%`;
             diskText.style.color = disk > 90 ? '#ff0055' : '';
@@ -184,75 +282,6 @@ export class UIController {
         if (netText) {
             netText.innerText = `${net_up.toFixed(2)} / ${net_down.toFixed(2)}`;
         }
-
-        this.history.push({ cpu, ram });
-        if (this.history.length > 50) this.history.shift();
-    }
-
-    drawTelemetry() {
-        if (this.history.length < 2) {
-            requestAnimationFrame(() => this.drawTelemetry());
-            return;
-        }
-
-        this.drawGraph(this.cpuCanvas, this.cpuCtx, 'cpu', '#00f3ff');
-        this.drawGraph(this.ramCanvas, this.ramCtx, 'ram', '#ff0055');
-
-        this._animFrameId = requestAnimationFrame(() => this.drawTelemetry());
-    }
-
-    drawGraph(canvas, ctx, dataKey, color) {
-        if (!canvas || !ctx) return;
-        
-        const w = canvas.width;
-        const h = canvas.height;
-        ctx.clearRect(0, 0, w, h);
-
-        const step = w / 50;
-        ctx.beginPath();
-        
-        // Add exact text overlay for current telemetry
-        if (this.history.length > 0) {
-            const currentVal = this.history[this.history.length - 1][dataKey];
-            ctx.fillStyle = color;
-            ctx.font = '12px monospace';
-            ctx.fillText(`${dataKey.toUpperCase()}: ${currentVal.toFixed(1)}%`, 5, 15);
-        }
-        
-        for (let i = 0; i < this.history.length; i++) {
-            const val = this.history[i][dataKey];
-            const x = i * step;
-            const y = h - (val / 100) * (h - 20) - 10;
-            
-            // Mouse Parallax Repulsion
-            let interactiveY = y;
-            if (canvas.mouseX > 0) {
-                const dist = Math.max(0, 80 - Math.abs(canvas.mouseX - x));
-                interactiveY -= dist * 0.2; // Bend upwards
-            }
-
-            if (i === 0) ctx.moveTo(x, interactiveY);
-            else ctx.lineTo(x, interactiveY);
-        }
-
-        // Pseudo 3D Glassy Line
-        ctx.shadowColor = color;
-        ctx.shadowBlur = 10;
-        ctx.strokeStyle = color;
-        ctx.lineWidth = 2.5;
-        ctx.stroke();
-
-        // Gradient body
-        ctx.lineTo(this.history.length * step, h);
-        ctx.lineTo(0, h);
-        ctx.closePath();
-        
-        const gradient = ctx.createLinearGradient(0, 0, 0, h);
-        gradient.addColorStop(0, color + '55'); // 33% opacity
-        gradient.addColorStop(1, 'transparent');
-        ctx.fillStyle = gradient;
-        ctx.fill();
-        ctx.shadowBlur = 0;
     }
 
     showApprovalDialog(command, onApprove, onDeny) {

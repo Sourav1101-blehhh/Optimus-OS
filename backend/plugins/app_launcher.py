@@ -26,7 +26,7 @@ APP_MAP = {
     "firefox": "firefox",
     "edge": "msedge",
     "microsoft edge": "msedge",
-    "spotify": "spotify",
+    "spotify": "spotify:",
     "discord": "discord",
     "slack": "slack",
     "code": "code",
@@ -39,17 +39,32 @@ APP_MAP = {
 }
 
 def execute(args: dict = None) -> str:
-    if not args or "app" not in args:
+    if not args:
         return "Error: Please provide an 'app' argument with the application name to launch."
     
-    app_name = args["app"].lower().strip()
+    app_name = args.get("app")
+    if not app_name:
+        cmd = args.get("command", args.get("query", "")).lower().strip()
+        for prefix in ["open ", "launch ", "start ", "run "]:
+            if cmd.startswith(prefix):
+                app_name = cmd[len(prefix):].strip()
+                break
+                
+    if not app_name:
+        return "Error: Please provide an 'app' argument with the application name to launch."
+        
+    app_name = app_name.lower().strip()
     
     # Look up in the map first
     executable = APP_MAP.get(app_name, app_name)
     
     try:
-        # os.startfile is immune to cmd injection and handles UWP apps natively
-        os.startfile(executable)
+        # os.startfile inherits headless state from Uvicorn, which hides UWP apps like Spotify.
+        # Passing it to 'explorer' forces it to spawn in the active desktop UI session.
+        if executable.endswith(":"):
+            subprocess.run(["explorer", executable], shell=True)
+        else:
+            os.startfile(executable)
         return f"Successfully launched: {app_name}"
     except Exception as e:
-        return f"Error launching '{app_name}': {e}"
+        return f"Error: launching '{app_name}' failed: {e}"

@@ -43,7 +43,7 @@ def execute(args: dict = None) -> str:
         return f"__APPROVAL_REQUIRED__:{code}"
 
     import uuid
-    workspace = os.path.join(os.path.dirname(__file__), "..", "..", "scratch")
+    workspace = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "scratch"))
     os.makedirs(workspace, exist_ok=True)
     script_path = os.path.join(workspace, f"_optimus_script_{uuid.uuid4().hex[:8]}.py")
 
@@ -51,9 +51,13 @@ def execute(args: dict = None) -> str:
         with open(script_path, "w", encoding="utf-8") as f:
             f.write(code)
 
-        import sys
+        # Map Windows path to WSL path
+        drive, tail = os.path.splitdrive(script_path)
+        wsl_script_path = f"/mnt/{drive[0].lower()}{tail.replace(os.sep, '/')}"
+
+        # We keep the timeout which provides an execution time limit for security
         result = subprocess.run(
-            [sys.executable, script_path],
+            ["wsl", "-e", "python3", wsl_script_path],
             capture_output=True,
             text=True,
             timeout=timeout,

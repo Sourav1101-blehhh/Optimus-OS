@@ -6,19 +6,19 @@
     <meta http-equiv="Content-Security-Policy" content="default-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com ws: wss: http: https: data:;">
     <title>OPTIMUS OS v1.0 // 3D HYBRID NEURAL CORES</title>
     <!-- Premium Cyberpunk Theme CSS -->
-    <link rel="stylesheet" href="styles.css">
+    <link rel="stylesheet" href="styles.css?v=2">
     <link rel="manifest" href="manifest.json">
     <meta name="theme-color" content="#00f3ff">
     <link rel="apple-touch-icon" href="icon-192.png">
     
     <!-- Markdown parsing & code highlighting -->
-    <script src="https://cdn.jsdelivr.net/npm/marked@4.3.0/marked.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/dompurify/3.0.3/purify.min.js"></script>
+    <script src="static/vendor/marked.min.js"></script>
+    <script src="static/vendor/purify.min.js"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/styles/atom-one-dark.min.css">
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/highlight.min.js"></script>
+    <script src="static/vendor/highlight.min.js"></script>
 
-    <!-- Three.js is loaded EXCLUSIVELY via ES6 import in webgl_core.js (Skypack CDN @0.136.0) -->
-    <!-- Removing the conflicting r128 CDN script that caused namespace collision -->
+    <!-- Three.js is loaded locally instead of Skypack CDN -->
+    <script src="static/vendor/three.min.js"></script>
     <style>
         .engine-select-container {
             display: flex;
@@ -117,7 +117,7 @@
         <!-- LEFT COLUMN (Telemetry, Memory, Search actions) -->
         <div class="col-l">
             <!-- System Vitals (Canvas Waves) -->
-            <div class="panel">
+            <div class="panel cyber-panel">
                 <div class="ptitle">SYSTEM_VITALS <span id="vitals-status">ONLINE</span></div>
                 <div class="vitals-container">
                     <div class="vital-metric-row">
@@ -151,7 +151,7 @@
             </div>
             
             <!-- Memory Banks (Interactive archives) -->
-            <div class="panel">
+            <div class="panel cyber-panel">
                 <div class="ptitle">MEMORY_BANKS <span>ARCHIVE_SYNCED</span></div>
                 <div class="mem-grid">
                     <div class="mem-box" onclick="sendCommand('Optimus, read memory')">T-24H</div>
@@ -161,7 +161,7 @@
             </div>
             
             <!-- Search & Actions -->
-            <div class="panel" style="flex: 1;">
+            <div class="panel cyber-panel" style="flex: 1;">
                 <div class="ptitle">COGNITIVE_SHORTCUTS</div>
                 <div class="action-row" onclick="sendCommand('Optimus, search my memory for recent notes')">🔍 Query archives...</div>
                 <div class="action-row" onclick="sendCommand('Optimus, what is on my schedule today?')">🔍 Query schedule...</div>
@@ -211,7 +211,7 @@
         <!-- RIGHT COLUMN (Media, Smart home, Data links) -->
         <div class="col-r">
             <!-- Media Control -->
-            <div class="panel">
+            <div class="panel cyber-panel">
                 <div class="ptitle">MEDIA_INTEGRITY</div>
                 <div class="media-wrapper">
                     <div class="integrity-pulse">98.4%</div>
@@ -230,7 +230,7 @@
             </div>
             
             <!-- Smart Home / Device Interface -->
-            <div class="panel">
+            <div class="panel cyber-panel">
                 <div class="ptitle">SMART_DEVICES</div>
                 <div class="sh-list">
                     <div class="sh-item active" onclick="toggleDevice(this, 'Optimus, toggle lights at home')">
@@ -249,7 +249,7 @@
             </div>
             
             <!-- Data Links -->
-            <div class="panel" style="flex: 1;">
+            <div class="panel cyber-panel" style="flex: 1;">
                 <div class="ptitle">DATA_CHANNELS</div>
                 <div class="dl-grid">
                     <div class="email-widget" onclick="sendCommand('Optimus, check unread emails')">
@@ -266,7 +266,7 @@
         <div class="row-b">
             
             <!-- Bottom Left panel (context/telemetry stats) -->
-            <div class="panel">
+            <div class="panel cyber-panel">
                 <div class="ptitle">CORE_MATRIX // CONTEXT</div>
                 <div style="font-family: var(--font-cyber); font-size: 0.7rem; color: #666; display: flex; flex-direction: column; gap: 4px;">
                     <div>NODE ADDRESS: 127.0.0.1:8000</div>

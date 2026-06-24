@@ -70,6 +70,17 @@ def _get_global_chromadb():
     if _GLOBAL_CHROMA_CLIENT is None:
         try:
             db_path = os.path.join(os.path.dirname(__file__), "..", "..", "chroma_db")
+            
+            import sqlite3
+            try:
+                os.makedirs(db_path, exist_ok=True)
+                sqlite_file = os.path.join(db_path, "chroma.sqlite3")
+                conn = sqlite3.connect(sqlite_file)
+                conn.execute("PRAGMA journal_mode=WAL;")
+                conn.close()
+            except Exception as e:
+                logger.warning(f"Failed to enable WAL mode: {e}")
+
             _GLOBAL_CHROMA_CLIENT = chromadb.PersistentClient(path=db_path)
             _GLOBAL_MEMORY_COL = _GLOBAL_CHROMA_CLIENT.get_or_create_collection(
                 name="optimus_episodic_memory",
@@ -427,6 +438,11 @@ class OptimusAgent:
         return f"""You are Optimus, an advanced autonomous local AI assistant (like Jarvis).
 Your goal is to help the user by having conversations and executing actions on their machine.
 
+CRITICAL OVERRIDE: YOU ARE CONNECTED TO THE LIVE INTERNET AND REAL-TIME DATA.
+You possess tools to search the web, execute code, and control the OS.
+NEVER say "I am an AI and cannot access real-time data" or "I don't have internet access".
+If asked for current events, population, news, or anything you don't know, YOU MUST USE A TOOL to find the answer.
+
 You have access to the following tools:
 {tools_list}
 
@@ -580,7 +596,7 @@ If you do not need to use a tool, just respond with normal text. Keep responses 
                     pass
             messages.append(item)
 
-        model_name = "llava" if has_images else "deepseek-coder-v2"
+        model_name = "llava" if has_images else "qwen2.5-coder:7b"
         payload = {
             "model":   model_name,
             "messages": messages,
@@ -775,7 +791,7 @@ If you do not need to use a tool, just respond with normal text. Keep responses 
             self._last_engine = engine
 
             if current_depth == 0:
-                self._append_history("user", message, image_data)
+                await self._append_history("user", message, image_data)
 
             system_prompt = self._build_system_prompt(message)
 
@@ -784,7 +800,7 @@ If you do not need to use a tool, just respond with normal text. Keep responses 
                 cached = self._cache_lookup(message)
                 if cached:
                     logger.info("Semantic cache HIT — zero-credit local yield.")
-                    self._append_history("model", cached)
+                    await self._append_history("model", cached)
                     yield cached
                     return
 
@@ -855,6 +871,17 @@ If you do not need to use a tool, just respond with normal text. Keep responses 
             # Try to fix malformed empty args like `"args": \n}`
             fixed_response = re.sub(r'"args"\s*:\s*}', '"args": {}}', full_response)
             
+            # Fix hallucinated missing values like `"max_results": }`
+            fixed_response = re.sub(r'"([^"]+)"\s*:\s*}', r'"\1": null}', fixed_response)
+            
+            # Separate consecutive JSON objects
+            fixed_response = fixed_response.replace("}{", "}\n{")
+            
+            # If the model outputs raw JSON without markdown fences, wrap it automatically
+            if fixed_response.strip().startswith("{") and '"tool":' in fixed_response:
+                # Wrap the whole thing
+                fixed_response = f"```json\n{fixed_response.strip()}\n```"
+                
             if "```json" in fixed_response and '"tool":' in fixed_response:
                 try:
                     json_blocks = re.findall(r"```json\s*(\{.*?\})\s*```", fixed_response, re.DOTALL)
@@ -875,7 +902,7 @@ If you do not need to use a tool, just respond with normal text. Keep responses 
                                 tool_calls.append(tool_call)
                         except: pass
 
-                    self._append_history("model", fixed_response)
+                    await self._append_history("model", fixed_response)
                     
                     async def run_tool(call):
                         t_name = call.get("tool")
@@ -886,6 +913,9 @@ If you do not need to use a tool, just respond with normal text. Keep responses 
                         res = await self.execute_plugin_async(t_name, t_args)
                         return t_name, res
 
+                    if not tool_calls:
+                        return
+
                     results = await asyncio.gather(*[run_tool(c) for c in tool_calls])
 
                     for t_name, result in results:
@@ -893,7 +923,7 @@ If you do not need to use a tool, just respond with normal text. Keep responses 
                             img_b64  = result[len("SCREENSHOT_BASE64:"):]
                             img_url  = f"data:image/png;base64,{img_b64}"
                             follow_msg = "SYSTEM: Screenshot captured. Describe what you see."
-                            self._append_history("user", follow_msg, img_url)
+                            await self._append_history("user", follow_msg, img_url)
                         else:
                             if isinstance(result, str) and ("Error:" in result or "Exception:" in result):
                                 follow_msg = (
@@ -902,7 +932,7 @@ If you do not need to use a tool, just respond with normal text. Keep responses 
                                 )
                             else:
                                 follow_msg = f"SYSTEM: Tool '{t_name}' returned:\n{result}"
-                            self._append_history("user", follow_msg)
+                            await self._append_history("user", follow_msg)
 
                     # Recurse with incremented depth counter
                     async for tok in self.process_message_stream(
@@ -918,7 +948,7 @@ If you do not need to use a tool, just respond with normal text. Keep responses 
                     logger.error(f"Tool call parse/exec error: {exc}")
 
             # ── Persist response and cache (depth 0 only) ────────────────────
-            self._append_history("model", full_response)
+            await self._append_history("model", full_response)
             if (
                 current_depth == 0
                 and full_response

@@ -104,7 +104,7 @@ def _verify_password(candidate: str) -> bool:
 # ---------------------------------------------------------------------------
 from backend.core.agent import OptimusAgent           
 from backend.core.plugin_manager import plugin_manager  
-from backend.core.audio_engine import wake_word_engine, get_wake_queue
+from backend.core.audio_engine import wake_word_engine, get_wake_queue, stream_neural_tts
 from backend.core.scheduler import optimus_scheduler
 
 # ---------------------------------------------------------------------------
@@ -213,6 +213,13 @@ class ConnectionManager:
             await websocket.send_text(text)
         except Exception as exc:
             logger.error(f"Failed to transmit text frame: {exc}")
+            self.disconnect(websocket)
+
+    async def safe_send_bytes(self, websocket: WebSocket, data: bytes) -> None:
+        try:
+            await websocket.send_bytes(data)
+        except Exception as exc:
+            logger.error(f"Failed to transmit bytes frame: {exc}")
             self.disconnect(websocket)
 
     async def send_system_message(self, websocket: WebSocket, message: str) -> None:
@@ -330,8 +337,6 @@ _RAW_ROUTING_TABLE: dict[str, str] = {
     "launch":      "app_launcher",
     "start":       "app_launcher",
     "close":       "app_launcher",
-    "run":         "terminal",
-    "kill":        "terminal",
     "volume":      "media_control",
     "mute":        "media_control",
     "unmute":      "media_control",
@@ -341,14 +346,6 @@ _RAW_ROUTING_TABLE: dict[str, str] = {
     "restart":     "system_vitals",
     "shutdown":    "system_vitals",
     "screenshot":  "screenshot",
-    "search":      "web_search",
-    "weather":     "weather",
-    "email":       "google_mail",
-    "mail":        "google_mail",
-    "calendar":    "google_calendar",
-    "schedule":    "google_calendar",
-    "meeting":     "google_calendar",
-    "appointment": "google_calendar",
 }
 
 _SEMANTIC_PATTERNS: list[tuple[re.Pattern, str]] = [
@@ -408,7 +405,7 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
             async with httpx.AsyncClient() as client:
                 await client.post(
                     "http://localhost:11434/api/generate",
-                    json={"model": "deepseek-coder-v2", "prompt": "", "keep_alive": "10m"},
+                    json={"model": "qwen2.5-coder:7b", "prompt": "", "keep_alive": "10m"},
                     timeout=5.0
                 )
         except Exception:
@@ -458,6 +455,7 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
             await manager.send_state(websocket, "thinking")
 
             route = get_semantic_route(user_msg)
+            semantic_success = False
             if route and not image_data:
                 try:
                     result = await agent.execute_plugin_async(
@@ -465,22 +463,33 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
                         {"command": user_msg, "query": user_msg, "_approved": approved},
                     )
                 except Exception as exc:
-                    result = f"Local plugin error: {exc}"
+                    result = f"Error: Local plugin error: {exc}"
 
-                await manager.send_state(websocket, "idle")
-
-                if isinstance(result, str) and result.startswith("__APPROVAL_REQUIRED__:"):
-                    cmd_text = result[len("__APPROVAL_REQUIRED__:"):]
-                    await manager.safe_send_json(websocket, {"type": "approval_required", "command": cmd_text})
+                if isinstance(result, str) and (result.startswith("Error") or "STDERR:" in result):
+                    logger.warning(f"Semantic route '{route}' failed. Falling back to LLM. Error: {result}")
                 else:
-                    await manager.safe_send_json(websocket, {"type": "chat", "data": f"[LOCAL] {result}"})
+                    await manager.send_state(websocket, "idle")
+
+                    if isinstance(result, str) and result.startswith("__APPROVAL_REQUIRED__:"):
+                        cmd_text = result[len("__APPROVAL_REQUIRED__:"):]
+                        await manager.safe_send_json(websocket, {"type": "approval_required", "command": cmd_text})
+                    else:
+                        await manager.safe_send_json(websocket, {"type": "chat", "data": f"[LOCAL] {result}"})
+                    semantic_success = True
+            
+            if semantic_success:
                 continue
 
             try:
-                async for token_piece in agent.process_message_stream(
-                    user_msg, image_data=image_data, engine=engine
-                ):
-                    await manager.safe_send_text(websocket, token_piece)
+                async def text_generator():
+                    async for token_piece in agent.process_message_stream(
+                        user_msg, image_data=image_data, engine=engine
+                    ):
+                        await manager.safe_send_text(websocket, token_piece)
+                        yield token_piece
+
+                async for audio_chunk in stream_neural_tts(text_generator()):
+                    await manager.safe_send_bytes(websocket, audio_chunk)
 
                 await manager.safe_send_json(websocket, {"type": "stream_end"})
             except Exception as exc:

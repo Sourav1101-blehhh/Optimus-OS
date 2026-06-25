@@ -80,7 +80,6 @@ Every plugin is a self-contained Python module that auto-discovers on startup:
 - **Windows 10/11** (64-bit)
 - **Python 3.11+**
 - **[Ollama](https://ollama.com/)** installed and running
-- **Node.js** (optional, for frontend dev)
 
 ### 1. Clone the Repository
 ```bash
@@ -105,13 +104,17 @@ ollama pull llava
 ### 4. Configure Environment Variables
 Copy `.env.example` to `.env` and fill in your keys:
 ```env
-OPTIMUS_PASSWORD=your_master_password
+OPTIMUS_MASTER_PASSWORD=your_master_password
 GEMINI_API_KEY=your_gemini_api_key        # Optional fallback
 OPENAI_API_KEY=your_openai_api_key        # Optional GPT-4o
-GOOGLE_CREDENTIALS_PATH=credentials.json  # Optional Gmail/Calendar
+DEEPSEEK_API_KEY=your_deepseek_api_key    # Optional fallback
+ANTHROPIC_API_KEY=your_anthropic_api_key  # Optional fallback
+OLLAMA_API_URL=http://127.0.0.1:11434      # Optional Ollama host override
 ```
 
-### 5. Download Vendor Assets
+If you want Gmail/Calendar support, place `credentials.json` in the repo root and authorize via Google OAuth on first use.
+
+### 5. Download the Vosk speech model
 ```bash
 python download_vendor.py
 ```
@@ -120,7 +123,7 @@ python download_vendor.py
 Download the model files from [Kokoro-ONNX](https://github.com/thewh1teagle/kokoro-onnx) and place them in the `model/` directory:
 ```
 model/
-  kokoro-v1.0.onnx
+  kokoro.onnx
   voices.json
 ```
 
@@ -128,6 +131,8 @@ model/
 ```bash
 python run_headless.py
 ```
+Open your browser at `http://127.0.0.1:8080`.
+
 Open your browser and navigate to `http://localhost:8000`.
 
 ---

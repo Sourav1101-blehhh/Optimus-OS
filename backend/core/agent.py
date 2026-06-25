@@ -97,7 +97,7 @@ def _get_global_chromadb():
 # ---------------------------------------------------------------------------
 # Desktop operation helper (used by Gemini function-calling)
 # ---------------------------------------------------------------------------
-def execute_desktop_operation(app_name: str, operations_json: str) -> str:
+async def execute_desktop_operation(app_name: str, operations_json: str) -> str:
     """
     Thin shim that routes Gemini function-call payloads to the desktop
     automation plugin.  Accepts a JSON string of operation descriptors.
@@ -111,7 +111,7 @@ def execute_desktop_operation(app_name: str, operations_json: str) -> str:
     except Exception:
         ops = [{"action": "type", "text": str(operations_json)}]
     from backend.plugins.desktop_automation import execute as _da_execute
-    return _da_execute({"app_name": app_name, "operations": ops})
+    return await _da_execute({"app_name": app_name, "operations": ops})
 
 
 # ---------------------------------------------------------------------------
@@ -254,6 +254,7 @@ class OptimusAgent:
                 "prompt": summary_prompt,
                 "stream": False
             }
+            new_summary = ""
             try:
                 resp = await self._ollama_http.post(
                     f"{os.getenv('OLLAMA_API_URL', 'http://127.0.0.1:11434')}/api/generate",
@@ -869,10 +870,10 @@ If you do not need to use a tool, just respond with normal text. Keep responses 
 
             # ── Agentic tool-use detection ───────────────────────────────────
             # Try to fix malformed empty args like `"args": \n}`
-            fixed_response = re.sub(r'"args"\s*:\s*}', '"args": {}}', full_response)
+            fixed_response = re.sub(r'"args"\s*:\s*(?=\})', '"args": {}', full_response)
             
             # Fix hallucinated missing values like `"max_results": }`
-            fixed_response = re.sub(r'"([^"]+)"\s*:\s*}', r'"\1": null}', fixed_response)
+            fixed_response = re.sub(r'"([^"]+)"\s*:\s*(?=\})', r'"\1": null', fixed_response)
             
             # Separate consecutive JSON objects
             fixed_response = fixed_response.replace("}{", "}\n{")

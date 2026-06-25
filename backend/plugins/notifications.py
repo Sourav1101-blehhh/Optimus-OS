@@ -7,6 +7,7 @@ PLUGIN_METADATA = {
 }
 
 def execute(args: dict = None) -> str:
+    args = args or {}
     title = args.get("title", "Optimus OS")
     message = args.get("message", "You have a new notification.")
     

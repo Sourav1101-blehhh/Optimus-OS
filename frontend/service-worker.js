@@ -1,4 +1,4 @@
-const CACHE_NAME = 'optimus-os-v3';
+const CACHE_NAME = 'optimus-os-v4';
 const ASSETS_TO_CACHE = [
   './',
   './index.html',
@@ -47,27 +47,23 @@ self.addEventListener('fetch', (event) => {
   }
   
   event.respondWith(
-    caches.match(event.request)
-      .then((response) => {
-        if (response) {
-          return response; // Return cached asset
+    caches.match(event.request).then((cachedResponse) => {
+      const fetchPromise = fetch(event.request).then((networkResponse) => {
+        if (!networkResponse || (networkResponse.status !== 200 && networkResponse.type !== 'opaque')) {
+          return networkResponse;
         }
-        return fetch(event.request).then(
-          (response) => {
-            if(!response || response.status !== 200 || response.type !== 'basic') {
-              return response;
-            }
-            // Optional: dynamically cache requested files
-            var responseToCache = response.clone();
-            caches.open(CACHE_NAME)
-              .then((cache) => {
-                if (event.request.method === 'GET') {
-                    cache.put(event.request, responseToCache);
-                }
-              });
-            return response;
+        const responseToCache = networkResponse.clone();
+        caches.open(CACHE_NAME).then((cache) => {
+          if (event.request.method === 'GET') {
+            cache.put(event.request, responseToCache);
           }
-        );
-      })
+        });
+        return networkResponse;
+      }).catch((err) => {
+        console.warn('Network fetch failed', err);
+      });
+      
+      return cachedResponse || fetchPromise;
+    })
   );
 });

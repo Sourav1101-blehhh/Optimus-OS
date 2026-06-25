@@ -62,7 +62,7 @@ def execute(args: dict = None) -> str:
         # os.startfile inherits headless state from Uvicorn, which hides UWP apps like Spotify.
         # Passing it to 'explorer' forces it to spawn in the active desktop UI session.
         if executable.endswith(":"):
-            subprocess.run(["explorer", executable], shell=True)
+            subprocess.run(["explorer", executable])
         else:
             os.startfile(executable)
         return f"Successfully launched: {app_name}"

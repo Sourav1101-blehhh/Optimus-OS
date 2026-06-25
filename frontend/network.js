@@ -321,7 +321,7 @@ export class NetworkManager extends EventTarget {
     _tick() {
         const now     = performance.now();
         const elapsed = now - this._tvWindowStart;
-        if (elapsed >= this._tvWindowMs) {
+        if (elapsed >= this._tvWindowMs - 50) { // Tolerate timer imprecision
             const rawTps      = (this._tvCount / elapsed) * 1000;
             this._smoothTps   = 0.15 * rawTps + 0.85 * this._smoothTps;
             this._tvCount     = 0;
@@ -349,17 +349,4 @@ export class NetworkManager extends EventTarget {
         this.dispatchEvent(new CustomEvent('amplitude', { detail: amplitude }));
     }
 
-    /**
-     * Cleans up resources, timers, and closes the connection.
-     */
-    destroy() {
-        if (this._tickInterval) clearInterval(this._tickInterval);
-        if (this._decayInterval) clearInterval(this._decayInterval);
-        if (this._reconnectTimer) clearTimeout(this._reconnectTimer);
-        this._intentionalClose = true;
-        if (this.socket) {
-            this.socket.close();
-            this.socket = null;
-        }
-    }
 }

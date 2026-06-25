@@ -9,8 +9,12 @@ class KineticTelemetryDisplay {
         
         if (this.canvas) {
             this.loop = this.loop.bind(this);
-            requestAnimationFrame(this.loop);
+            this.animFrameId = requestAnimationFrame(this.loop);
         }
+    }
+    
+    destroy() {
+        if (this.animFrameId) cancelAnimationFrame(this.animFrameId);
     }
     
     update(value) {
@@ -20,7 +24,7 @@ class KineticTelemetryDisplay {
     }
     
     loop() {
-        requestAnimationFrame(this.loop);
+        this.animFrameId = requestAnimationFrame(this.loop);
         if (!this.ctx || !this.canvas) return;
         
         // Lerp
@@ -66,6 +70,7 @@ class KineticTelemetryDisplay {
         ctx.stroke();
         
         // Gradient body
+        ctx.beginPath();
         ctx.lineTo(w, h);
         ctx.lineTo(0, h);
         ctx.closePath();
@@ -176,17 +181,17 @@ export class UIController {
     appendChat(text, type = "model") {
         if (!this.chatBox) return;
         const msg = document.createElement('div');
-        msg.className = `chat-bubble ${type}`;
+        msg.className = `msg ${type}`;
         
         if (text.startsWith('[LOCAL]')) {
-            msg.className = 'chat-bubble system-tool';
+            msg.className = 'msg system-tool';
             text = text.substring(7).trim();
             msg.innerHTML = `<div class="md-content" style="border-left: 3px solid var(--neon-cyan); padding-left: 10px; background: rgba(0,243,255,0.05);"><strong>TOOL EXECUTION (LOCAL)</strong><br>${DOMPurify.sanitize(text)}</div>`;
         } else if (text.startsWith('[ERROR]')) {
-            msg.className = 'chat-bubble system-error';
+            msg.className = 'msg system-error';
             msg.innerHTML = `<div class="md-content" style="color:#ff0055">${DOMPurify.sanitize(text)}</div>`;
         } else if (text.startsWith('SYSTEM: Tool')) {
-            msg.className = 'chat-bubble system-tool';
+            msg.className = 'msg system-tool';
             msg.innerHTML = `<div class="md-content" style="border-left: 3px solid var(--neon-pink); padding-left: 10px; background: rgba(255,0,85,0.05); font-size: 0.85em; color: #ccc;">${DOMPurify.sanitize(text)}</div>`;
         } else if (type === 'model' && window.marked) {
             marked.setOptions({ breaks: true, gfm: true });
@@ -208,7 +213,7 @@ export class UIController {
         let lastBubble = this.chatBox.lastElementChild;
         if (!lastBubble || !lastBubble.classList.contains('model') || lastBubble.dataset.finished) {
             lastBubble = document.createElement('div');
-            lastBubble.className = `chat-bubble model`;
+            lastBubble.className = `msg model`;
             lastBubble.dataset.rawText = "";
             this.chatBox.appendChild(lastBubble);
         }
@@ -310,17 +315,17 @@ export class UIController {
             <h3>Execution Requires Approval</h3>
             <p>Optimus wants to run:</p>
             <pre style="background:#000; padding:10px; color:#00f3ff; text-align:left; overflow-x:auto;">${DOMPurify.sanitize(command)}</pre>
-            <button id="btn-approve" style="margin-right:10px; background:#00f3ff; color:#000; border:none; padding:8px 16px; cursor:pointer;">Approve</button>
-            <button id="btn-deny" style="background:#ff0055; color:#fff; border:none; padding:8px 16px; cursor:pointer;">Deny</button>
+            <button class="btn-approve" style="margin-right:10px; background:#00f3ff; color:#000; border:none; padding:8px 16px; cursor:pointer;">Approve</button>
+            <button class="btn-deny" style="background:#ff0055; color:#fff; border:none; padding:8px 16px; cursor:pointer;">Deny</button>
         `;
         overlay.appendChild(box);
         document.body.appendChild(overlay);
 
-        document.getElementById('btn-approve').onclick = () => {
+        box.querySelector('.btn-approve').onclick = () => {
             document.body.removeChild(overlay);
             onApprove();
         };
-        document.getElementById('btn-deny').onclick = () => {
+        box.querySelector('.btn-deny').onclick = () => {
             document.body.removeChild(overlay);
             onDeny();
         };
@@ -351,5 +356,7 @@ export class UIController {
      */
     destroy() {
         if (this._animFrameId) cancelAnimationFrame(this._animFrameId);
+        if (this.cpuTracker) this.cpuTracker.destroy();
+        if (this.ramTracker) this.ramTracker.destroy();
     }
 }

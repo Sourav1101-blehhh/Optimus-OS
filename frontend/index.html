@@ -2,6 +2,24 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
+    <script>
+        window.addEventListener('error', function(e) {
+            const errDiv = document.createElement('div');
+            errDiv.style.position = 'fixed';
+            errDiv.style.top = '10px';
+            errDiv.style.left = '10px';
+            errDiv.style.right = '10px';
+            errDiv.style.padding = '20px';
+            errDiv.style.background = '#ff0000';
+            errDiv.style.color = '#fff';
+            errDiv.style.zIndex = '999999';
+            errDiv.style.fontSize = '16px';
+            errDiv.style.fontFamily = 'monospace';
+            errDiv.style.wordWrap = 'break-word';
+            errDiv.innerText = 'CRITICAL BROWSER ERROR: ' + e.message + ' at ' + e.filename + ':' + e.lineno;
+            document.body.appendChild(errDiv);
+        });
+    </script>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta http-equiv="Content-Security-Policy" content="default-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com ws: wss: http: https: data:;">
     <title>OPTIMUS OS v1.0 // 3D HYBRID NEURAL CORES</title>

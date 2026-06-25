@@ -18,7 +18,7 @@ async def load_db():
             with open(DB_FILE, 'r') as f:
                 return json.load(f)
         return await asyncio.to_thread(_read)
-    except:
+    except Exception:
         return {}
 
 async def save_db(data):

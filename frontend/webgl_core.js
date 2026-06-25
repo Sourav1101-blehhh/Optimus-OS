@@ -3,6 +3,15 @@ export class WebGLCore {
         this.container = document.getElementById(containerId);
         this.canvas = document.getElementById(canvasId);
 
+        if (typeof THREE === 'undefined') {
+            console.warn('[WebGLCore] THREE.js is not loaded. 3D rendering disabled.');
+            return;
+        }
+        if (!this.container || !this.canvas) {
+            console.warn('[WebGLCore] Container or Canvas not found. 3D rendering disabled.');
+            return;
+        }
+
         // Scene Setup
         this.scene = new THREE.Scene();
         this.camera = new THREE.PerspectiveCamera(60, this.container.clientWidth / this.container.clientHeight, 0.1, 100);
@@ -127,9 +136,9 @@ export class WebGLCore {
                 
                 gl_Position = projectionMatrix * viewMatrix * worldPosition;
             }
-        \`;
+        `;
 
-        const fragmentShaderCode = \`
+        const fragmentShaderCode = `
             uniform float uTime;
             uniform float uAmplitude;
             uniform vec3 uColorCyan;
@@ -159,7 +168,7 @@ export class WebGLCore {
 
                 gl_FragColor = vec4(finalColor, min(alpha, 1.0));
             }
-        \`;
+        `;
 
         this.orbUniforms = {
             uTime: { value: 0.0 },

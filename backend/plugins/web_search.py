@@ -45,7 +45,7 @@ async def execute(args: dict = None) -> str:
                     snippet = re.sub(r'<[^>]+>', '', r.get('snippet', ''))
                     results.append(f"[Wikipedia] Title: {r.get('title')}\nSnippet: {snippet}")
     except Exception as e:
-        pass
+        results.append(f"[Wikipedia Error] {e}")
         
     if not results:
         return f"No results found for query: '{query}'"

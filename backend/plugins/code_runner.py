@@ -1,6 +1,7 @@
 import subprocess
 import tempfile
 import os
+import sys
 
 PLUGIN_METADATA = {
     "name": "code_runner",
@@ -55,9 +56,15 @@ def execute(args: dict = None) -> str:
         drive, tail = os.path.splitdrive(script_path)
         wsl_script_path = f"/mnt/{drive[0].lower()}{tail.replace(os.sep, '/')}"
 
+        import shutil
+        if sys.platform == "win32" and shutil.which("wsl"):
+            cmd = ["wsl", "-e", "python3", wsl_script_path]
+        else:
+            cmd = [sys.executable, script_path]
+
         # We keep the timeout which provides an execution time limit for security
         result = subprocess.run(
-            ["wsl", "-e", "python3", wsl_script_path],
+            cmd,
             capture_output=True,
             text=True,
             timeout=timeout,

@@ -46,8 +46,10 @@ class ProactiveScheduler:
         action = job_def.get("action")
         logger.info(f"Proactive Scheduler: Executing routine task '{job_def.get('id')}' -> plugin: {action}")
         
-        from backend.core.plugin_manager import plugin_manager
-        from backend.main import manager # Circular import guard
+        import backend.core.plugin_manager
+        plugin_manager = backend.core.plugin_manager.plugin_manager
+        import backend.main
+        manager = backend.main.manager # Circular import guard
         
         # In a real environment, we would pass specific args. Here we pass a generic check intent.
         try:
@@ -113,6 +115,9 @@ class ProactiveScheduler:
     def start(self):
         self.scheduler.start()
         self.sync_jobs_from_disk()
-        asyncio.create_task(self.poll_matrix_loop(), name="scheduler_poll")
+        try:
+            asyncio.get_running_loop().create_task(self.poll_matrix_loop(), name="scheduler_poll")
+        except RuntimeError:
+            pass
 
 optimus_scheduler = ProactiveScheduler()

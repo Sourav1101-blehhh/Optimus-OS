@@ -5,6 +5,7 @@ Uses asyncio.to_thread to prevent event-loop blocking on psutil blocking calls.
 from __future__ import annotations
 
 import asyncio
+import os
 import platform
 import time
 from typing import Any
@@ -34,7 +35,7 @@ def _collect_vitals() -> dict[str, Any]:
     vm        = psutil.virtual_memory()
     swap      = psutil.swap_memory()
 
-    disk      = psutil.disk_usage("/")
+    disk      = psutil.disk_usage(os.path.abspath(os.sep))
     net_io    = psutil.net_io_counters()
 
     boot_ts   = psutil.boot_time()

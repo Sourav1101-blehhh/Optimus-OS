@@ -180,7 +180,10 @@ class WakeWordDaemon:
             return
         self._running = True
         try:
-            self._loop = asyncio.get_event_loop()
+            self._loop = asyncio.get_running_loop()
+            global WAKE_EVENT_QUEUE
+            if WAKE_EVENT_QUEUE is None:
+                WAKE_EVENT_QUEUE = asyncio.Queue()
         except RuntimeError:
             self._loop = None
         self._thread = threading.Thread(target=self._daemon_loop, daemon=True)

@@ -35,16 +35,8 @@ def create_image():
     dc.ellipse((28, 28, 36, 36), fill=(0, 255, 255, 255))
     return image
 
-def check_port(port):
-    import socket
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        return s.connect_ex(('127.0.0.1', port)) == 0
-
 def start_backend():
     global backend_process
-    if check_port(8000):
-        print("Port 8000 in use.")
-        sys.exit(1)
     # Use pythonw or start detached so it doesn't open a console window
     # sys.executable points to the current venv python
     cmd = [sys.executable, "-m", "uvicorn", "backend.main:app", "--host", "127.0.0.1", "--port", "8000"]
@@ -63,9 +55,6 @@ def start_backend():
 
 def start_frontend():
     global frontend_process
-    if check_port(8080):
-        print("Port 8080 in use.")
-        sys.exit(1)
     cmd = [sys.executable, "-m", "http.server", "8080", "-d", "frontend"]
     
     creationflags = 0
@@ -100,16 +89,6 @@ def terminate_core(icon, item):
     icon.stop()
     sys.exit(0)
 
-def monitor_processes(icon):
-    while True:
-        time.sleep(2)
-        if backend_process and backend_process.poll() is not None:
-            icon.notify("Optimus Core crashed!")
-            break
-        if frontend_process and frontend_process.poll() is not None:
-            icon.notify("Optimus UI crashed!")
-            break
-
 def main():
     # Start the FastAPI server in a background process
     t1 = threading.Thread(target=start_backend, daemon=True)
@@ -130,10 +109,6 @@ def main():
     )
     
     icon = pystray.Icon("Optimus", create_image(), "Optimus OS Core", menu)
-    
-    # Process death monitoring
-    threading.Thread(target=monitor_processes, args=(icon,), daemon=True).start()
-    
     icon.run()
 
 if __name__ == "__main__":

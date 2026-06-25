@@ -158,7 +158,7 @@ header {
 
 header::before {
     content: '';
-    position: absolute;
+    position: fixed;
     bottom: -2px;
     left: 10%;
     width: 80%;
@@ -1161,63 +1161,63 @@ header::before {
 .glitch::before {
     left: 2px;
     text-shadow: -2px 0 #ff0055;
-    clip: rect(44px, 450px, 56px, 0);
+    clip-path: polygon(0 44px, 450px 44px, 450px 56px, 0 56px);
     animation: glitch-anim 5s infinite linear alternate-reverse;
 }
 
 .glitch::after {
     left: -2px;
     text-shadow: -2px 0 #00f3ff;
-    clip: rect(44px, 450px, 56px, 0);
+    clip-path: polygon(0 44px, 450px 44px, 450px 56px, 0 56px);
     animation: glitch-anim2 5s infinite linear alternate-reverse;
 }
 
 @keyframes glitch-anim {
-    0% { clip: rect(10px, 9999px, 83px, 0); }
-    5% { clip: rect(61px, 9999px, 20px, 0); }
-    10% { clip: rect(8px, 9999px, 86px, 0); }
-    15% { clip: rect(48px, 9999px, 7px, 0); }
-    20% { clip: rect(98px, 9999px, 66px, 0); }
-    25% { clip: rect(51px, 9999px, 89px, 0); }
-    30% { clip: rect(94px, 9999px, 35px, 0); }
-    35% { clip: rect(88px, 9999px, 52px, 0); }
-    40% { clip: rect(96px, 9999px, 26px, 0); }
-    45% { clip: rect(69px, 9999px, 80px, 0); }
-    50% { clip: rect(7px, 9999px, 1px, 0); }
-    55% { clip: rect(84px, 9999px, 99px, 0); }
-    60% { clip: rect(49px, 9999px, 18px, 0); }
-    65% { clip: rect(74px, 9999px, 89px, 0); }
-    70% { clip: rect(67px, 9999px, 64px, 0); }
-    75% { clip: rect(45px, 9999px, 27px, 0); }
-    80% { clip: rect(1px, 9999px, 34px, 0); }
-    85% { clip: rect(58px, 9999px, 25px, 0); }
-    90% { clip: rect(2px, 9999px, 15px, 0); }
-    95% { clip: rect(73px, 9999px, 95px, 0); }
-    100% { clip: rect(31px, 9999px, 4px, 0); }
+    0% { clip-path: polygon(0 10px, 9999px 10px, 9999px 83px, 0 83px); }
+    5% { clip-path: polygon(0 61px, 9999px 61px, 9999px 20px, 0 20px); }
+    10% { clip-path: polygon(0 8px, 9999px 8px, 9999px 86px, 0 86px); }
+    15% { clip-path: polygon(0 48px, 9999px 48px, 9999px 7px, 0 7px); }
+    20% { clip-path: polygon(0 98px, 9999px 98px, 9999px 66px, 0 66px); }
+    25% { clip-path: polygon(0 51px, 9999px 51px, 9999px 89px, 0 89px); }
+    30% { clip-path: polygon(0 94px, 9999px 94px, 9999px 35px, 0 35px); }
+    35% { clip-path: polygon(0 88px, 9999px 88px, 9999px 52px, 0 52px); }
+    40% { clip-path: polygon(0 96px, 9999px 96px, 9999px 26px, 0 26px); }
+    45% { clip-path: polygon(0 69px, 9999px 69px, 9999px 80px, 0 80px); }
+    50% { clip-path: polygon(0 7px, 9999px 7px, 9999px 1px, 0 1px); }
+    55% { clip-path: polygon(0 84px, 9999px 84px, 9999px 99px, 0 99px); }
+    60% { clip-path: polygon(0 49px, 9999px 49px, 9999px 18px, 0 18px); }
+    65% { clip-path: polygon(0 74px, 9999px 74px, 9999px 89px, 0 89px); }
+    70% { clip-path: polygon(0 67px, 9999px 67px, 9999px 64px, 0 64px); }
+    75% { clip-path: polygon(0 45px, 9999px 45px, 9999px 27px, 0 27px); }
+    80% { clip-path: polygon(0 1px, 9999px 1px, 9999px 34px, 0 34px); }
+    85% { clip-path: polygon(0 58px, 9999px 58px, 9999px 25px, 0 25px); }
+    90% { clip-path: polygon(0 2px, 9999px 2px, 9999px 15px, 0 15px); }
+    95% { clip-path: polygon(0 73px, 9999px 73px, 9999px 95px, 0 95px); }
+    100% { clip-path: polygon(0 31px, 9999px 31px, 9999px 4px, 0 4px); }
 }
 
 @keyframes glitch-anim2 {
-    0% { clip: rect(84px, 9999px, 80px, 0); }
-    5% { clip: rect(6px, 9999px, 14px, 0); }
-    10% { clip: rect(36px, 9999px, 43px, 0); }
-    15% { clip: rect(11px, 9999px, 24px, 0); }
-    20% { clip: rect(3px, 9999px, 48px, 0); }
-    25% { clip: rect(97px, 9999px, 19px, 0); }
-    30% { clip: rect(59px, 9999px, 15px, 0); }
-    35% { clip: rect(18px, 9999px, 96px, 0); }
-    40% { clip: rect(81px, 9999px, 81px, 0); }
-    45% { clip: rect(70px, 9999px, 4px, 0); }
-    50% { clip: rect(93px, 9999px, 99px, 0); }
-    55% { clip: rect(98px, 9999px, 32px, 0); }
-    60% { clip: rect(39px, 9999px, 5px, 0); }
-    65% { clip: rect(64px, 9999px, 32px, 0); }
-    70% { clip: rect(93px, 9999px, 22px, 0); }
-    75% { clip: rect(62px, 9999px, 16px, 0); }
-    80% { clip: rect(26px, 9999px, 54px, 0); }
-    85% { clip: rect(4px, 9999px, 21px, 0); }
-    90% { clip: rect(27px, 9999px, 2px, 0); }
-    95% { clip: rect(40px, 9999px, 46px, 0); }
-    100% { clip: rect(77px, 9999px, 34px, 0); }
+    0% { clip-path: polygon(0 84px, 9999px 84px, 9999px 80px, 0 80px); }
+    5% { clip-path: polygon(0 6px, 9999px 6px, 9999px 14px, 0 14px); }
+    10% { clip-path: polygon(0 36px, 9999px 36px, 9999px 43px, 0 43px); }
+    15% { clip-path: polygon(0 11px, 9999px 11px, 9999px 24px, 0 24px); }
+    20% { clip-path: polygon(0 3px, 9999px 3px, 9999px 48px, 0 48px); }
+    25% { clip-path: polygon(0 97px, 9999px 97px, 9999px 19px, 0 19px); }
+    30% { clip-path: polygon(0 59px, 9999px 59px, 9999px 15px, 0 15px); }
+    35% { clip-path: polygon(0 18px, 9999px 18px, 9999px 96px, 0 96px); }
+    40% { clip-path: polygon(0 81px, 9999px 81px, 9999px 81px, 0 81px); }
+    45% { clip-path: polygon(0 70px, 9999px 70px, 9999px 4px, 0 4px); }
+    50% { clip-path: polygon(0 93px, 9999px 93px, 9999px 99px, 0 99px); }
+    55% { clip-path: polygon(0 98px, 9999px 98px, 9999px 32px, 0 32px); }
+    60% { clip-path: polygon(0 39px, 9999px 39px, 9999px 5px, 0 5px); }
+    65% { clip-path: polygon(0 64px, 9999px 64px, 9999px 32px, 0 32px); }
+    70% { clip-path: polygon(0 93px, 9999px 93px, 9999px 22px, 0 22px); }
+    75% { clip-path: polygon(0 62px, 9999px 62px, 9999px 16px, 0 16px); }
+    80% { clip-path: polygon(0 26px, 9999px 26px, 9999px 54px, 0 54px); }
+    85% { clip-path: polygon(0 4px, 9999px 4px, 9999px 21px, 0 21px); }
+    90% { clip-path: polygon(0 27px, 9999px 27px, 9999px 2px, 0 2px); }
+    95% { clip-path: polygon(0 40px, 9999px 40px, 9999px 46px, 0 46px); }
+    100% { clip-path: polygon(0 77px, 9999px 77px, 9999px 34px, 0 34px); }
 }
 
 .login-matrix-bg {

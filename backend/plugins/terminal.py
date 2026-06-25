@@ -121,7 +121,7 @@ async def execute(args: dict | None = None) -> str:
         return "Error: No 'command' key provided in plugin args."
 
     command  = str(args["command"])
-    approved = bool(args.get("approved", False))
+    approved = bool(args.get("_approved", args.get("approved", False)))
 
     if not approved:
         # Return sentinel string — gateway converts this to an approval_required event

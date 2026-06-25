@@ -53,10 +53,11 @@ else:
 import psutil
 try:
     import py3nvml
-    import wmi
+    if sys.platform == "win32":
+        import wmi
     try:
         py3nvml.py3nvml.nvmlInit()
-        HAS_GPU_WMI = True
+        HAS_GPU_WMI = True if sys.platform == "win32" else False
     except Exception:
         HAS_GPU_WMI = False
 except ImportError:
@@ -163,7 +164,7 @@ app = FastAPI(title="Optimus Backend", version="5.1", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:8080", "http://127.0.0.1:8080"],
+    allow_origins=["http://localhost:8080", "http://127.0.0.1:8080", "http://localhost:8081", "http://127.0.0.1:8081", "http://127.0.0.1:8000"],
     allow_credentials=True,
     allow_methods=["GET", "POST"],
     allow_headers=["*"],
@@ -181,7 +182,10 @@ class ConnectionManager:
     async def connect(self, websocket: WebSocket) -> OptimusAgent:
         if len(self.active_connections) >= 5:
             logger.warning("Max WebSocket connections reached. Rejecting new connection.")
-            await websocket.close(code=1013, reason="Server busy")
+            try:
+                await websocket.close(code=1013, reason="Server busy")
+            except RuntimeError:
+                pass
             return None
         self.active_connections.append(websocket)
         agent = OptimusAgent()          
@@ -269,10 +273,10 @@ async def hardware_telemetry_loop() -> None:
     while True:
         try:
             if manager.active_connections:
-                now = asyncio.get_event_loop().time()
+                now = asyncio.get_running_loop().time()
                 cpu = await asyncio.to_thread(psutil.cpu_percent, interval=None)
                 ram = await asyncio.to_thread(lambda: psutil.virtual_memory().percent)
-                disk = await asyncio.to_thread(lambda: psutil.disk_usage("/").percent)
+                disk = await asyncio.to_thread(lambda: psutil.disk_usage(os.path.abspath(os.sep)).percent)
                 net = await asyncio.to_thread(psutil.net_io_counters)
                 
                 net_up = 0.0
@@ -370,7 +374,10 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
 
     try:
         raw_auth = await asyncio.wait_for(websocket.receive_text(), timeout=5.0)
-        auth_payload = json.loads(raw_auth)
+        try:
+            auth_payload = json.loads(raw_auth)
+        except json.JSONDecodeError:
+            auth_payload = {}
         candidate_pw = str(auth_payload.get("password", auth_payload.get("token", "")))
 
         if not _verify_password(candidate_pw):
@@ -423,7 +430,7 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
                 return
 
             # ── WebSocket Rate Limiting (10 msgs / 5s) ──
-            now = asyncio.get_event_loop().time()
+            now = asyncio.get_running_loop().time()
             message_timestamps = [t for t in message_timestamps if now - t < 5.0]
             if len(message_timestamps) >= 10:
                 await manager.safe_send_json(websocket, {"type": "rate_limited", "data": "Rate limit exceeded. Please slow down."})

@@ -21,7 +21,7 @@ window.exportConversation = function(e) {
     const chatBox = document.getElementById('chat-history');
     if (!chatBox) return;
     let exportText = "Optimus OS Conversation Export\n==============================\n\n";
-    chatBox.querySelectorAll('.chat-bubble').forEach(bubble => {
+    chatBox.querySelectorAll('.msg').forEach(bubble => {
         const isUser = bubble.classList.contains('user');
         const role = isUser ? "USER" : "OPTIMUS";
         const content = bubble.innerText.trim();
@@ -39,23 +39,6 @@ window.exportConversation = function(e) {
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
 }
-
-document.getElementById('login-btn').addEventListener('click', () => {
-    const pwdInput = document.getElementById('login-password');
-    const pwd = pwdInput.value.trim();
-    if (pwd) {
-        document.getElementById('login-error').innerText = "CONNECTING...";
-        initOptimus(pwd);
-    } else {
-        document.getElementById('login-error').innerText = "Please enter a key.";
-    }
-});
-
-document.getElementById('login-password').addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') {
-        document.getElementById('login-btn').click();
-    }
-});
 
 let isInitialized = false;
 
@@ -81,13 +64,16 @@ function initOptimus(token) {
         ui.setStatus(e.detail);
         if (e.detail === 'Connected') {
             // Hide the login overlay when connected
-            document.getElementById('login-overlay').classList.add('hidden');
+            const overlay = document.getElementById('login-overlay');
+            if (overlay) overlay.classList.add('hidden');
         } else {
             // If it's a specific auth failure, show the overlay again with an error
             if (e.detail.includes("Auth failed") || e.detail.includes("Unauthorized")) {
                 document.getElementById('login-overlay').classList.remove('hidden');
                 document.getElementById('login-error').innerText = "AUTH REJECTED. TRY AGAIN.";
                 document.getElementById('login-password').value = "";
+            } else if (e.detail === 'Disconnected') {
+                document.getElementById('login-error').innerText = "BACKEND OFFLINE. RETRYING...";
             }
         }
     });
@@ -179,7 +165,11 @@ function initOptimus(token) {
 
     window.toggleCommHUD = () => {
         const hud = document.getElementById('comm-hud');
-        if (hud) hud.classList.toggle('collapsed');
+        if (hud) {
+            hud.classList.toggle('collapsed');
+            const arrow = document.getElementById('toggle-arrow');
+            if (arrow) arrow.innerText = hud.classList.contains('collapsed') ? '◀' : '▶';
+        }
     };
 
     // UI Input Binding
@@ -206,7 +196,9 @@ function initOptimus(token) {
             const text = terminalInput.value.trim();
             if (text) {
                 ui.appendChat(`> ${text}`, 'user');
-                network.sendThought(text, "LOCAL", null, false);
+                const engineSelect = document.getElementById('engine-select');
+                const engine = engineSelect ? engineSelect.value : "LOCAL";
+                network.sendThought(text, engine, null, false);
                 terminalInput.value = '';
             }
         });
@@ -234,7 +226,9 @@ function initOptimus(token) {
     speech.addEventListener('transcript', (e) => {
         const text = e.detail;
         ui.appendChat(text, 'user');
-        network.sendThought(text, "GEMINI", null, false);
+        const engineSelect = document.getElementById('engine-select');
+        const engine = engineSelect ? engineSelect.value : "GEMINI";
+        network.sendThought(text, engine, null, false);
     });
 
     // Start Render Loop
@@ -247,6 +241,23 @@ function initOptimus(token) {
 
 // Start
 window.onload = () => {
+    document.getElementById('login-btn').addEventListener('click', () => {
+        const pwdInput = document.getElementById('login-password');
+        const pwd = pwdInput.value.trim();
+        if (pwd) {
+            document.getElementById('login-error').innerText = "CONNECTING...";
+            initOptimus(pwd);
+        } else {
+            document.getElementById('login-error').innerText = "Please enter a key.";
+        }
+    });
+
+    document.getElementById('login-password').addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+            document.getElementById('login-btn').click();
+        }
+    });
+
     // Small timeout to allow DOM to settle
     setTimeout(promptForToken, 500);
 };

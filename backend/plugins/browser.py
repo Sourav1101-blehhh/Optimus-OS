@@ -26,7 +26,8 @@ async def execute(args: dict = None) -> str:
             if action == "extract_text":
                 text = await page.evaluate("document.body.innerText")
                 await browser.close()
-                return f"Successfully extracted text from {url}:\n\n{text[:2000]}..."
+                truncated = "..." if len(text) > 2000 else ""
+                return f"Successfully extracted text from {url}:\n\n{text[:2000]}{truncated}"
             else:
                 await browser.close()
                 return f"Successfully opened {url}"

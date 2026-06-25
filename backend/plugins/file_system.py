@@ -143,7 +143,7 @@ _ACTION_MAP = {
 }
 
 
-async def _execute_async(args: dict | None = None) -> str:  # type: ignore[override]
+async def execute(args: dict | None = None) -> str:
     if not args:
         return "Error: No arguments provided."
     action = args.get("action", "").strip().lower()
@@ -159,18 +159,3 @@ async def _execute_async(args: dict | None = None) -> str:  # type: ignore[overr
         return f"Permission denied: {exc}"
     except Exception as exc:
         return f"Error performing file operation '{action}': {exc}"
-
-
-# ---------------------------------------------------------------------------
-# Synchronous shim — plugin_manager calls execute() synchronously
-# ---------------------------------------------------------------------------
-def execute(args: dict | None = None) -> str:
-    try:
-        loop = asyncio.get_event_loop()
-        if loop.is_running():
-            import concurrent.futures
-            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
-                return pool.submit(asyncio.run, _execute_async(args)).result()
-        return loop.run_until_complete(_execute_async(args))
-    except Exception as exc:
-        return f"Error in file_system plugin: {exc}"

@@ -27,6 +27,10 @@ async def execute(args: dict = None) -> str:
     if not args or "app_name" not in args:
         return "Error: App name ('app_name') argument is required. Operations list ('operations') is optional."
 
+    approved = bool(args.get("_approved", args.get("approved", False)))
+    if not approved:
+        return f"__APPROVAL_REQUIRED__:desktop_automation:{args}"
+
     app_name = args.get("app_name", "").strip()
     operations = args.get("operations", [])
 

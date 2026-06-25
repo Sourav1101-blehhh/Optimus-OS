@@ -134,7 +134,7 @@ class OptimusAgent:
     _CACHE_MAX:   int = 512   # Hard LRU eviction cap
     _NGRAM_N:     int = 3     # Trigram size for Tier-1 fingerprinting
     _NGRAM_TOP:   int = 12    # Top-N trigrams used per fingerprint
-    _JACCARD_MIN: float = 0.85  # Minimum Jaccard similarity for Tier-1 hit
+    _JACCARD_MIN: float = 0.94  # Minimum Jaccard similarity for Tier-1 hit
 
     # Recursive tool-use depth limit
     _MAX_TOOL_DEPTH: int = 5
@@ -206,8 +206,18 @@ class OptimusAgent:
         # Persistent summary built by the background pruner
         self.session_summary: str = ""
         self._last_engine: str = "LOCAL"
+        self.pending_approvals: set[str] = set()
 
         logger.debug("OptimusAgent instance created (isolated session).")
+
+    def request_approval(self, command: str):
+        self.pending_approvals.add(command)
+
+    def check_and_consume_approval(self, command: str) -> bool:
+        if command in self.pending_approvals:
+            self.pending_approvals.remove(command)
+            return True
+        return False
 
     async def close(self) -> None:
         """Cleanup persistent resources."""
@@ -288,25 +298,25 @@ class OptimusAgent:
         finally:
             self._pruning_in_progress = False
 
-    def _get_history(self) -> list[dict]:
-        return self._history_matrix
+    async def _get_history(self) -> list[dict]:
+        async with self._history_lock:
+            return list(self._history_matrix)
 
     def purge_base64_assets(self) -> None:
         """
-        Strips image_data fields from all history entries after inference
-        completes.  Prevents base64 image strings from being re-serialised
-        into every subsequent LLM request, which would inflate token counts
-        and API costs on each follow-up message.
+        Strips image_data and image_url fields from all history entries after inference
+        completes. Prevent token counts and API costs inflating.
         """
         for entry in self._history_matrix:
-            if entry and "image_data" in entry:
-                del entry["image_data"]
+            if entry:
+                entry.pop("image_data", None)
+                entry.pop("image_url", None)
         logger.debug("Context asset purge complete (base64 fields stripped).")
 
-    @property
-    def chat_history(self) -> list[dict]:
+    async def get_chat_history(self) -> list[dict]:
         """Returns history entries in chronological order."""
-        return [e for e in self._history_matrix if e]
+        async with self._history_lock:
+            return [e for e in self._history_matrix if e]
 
     # ------------------------------------------------------------------
     # Dual-Tier Semantic Cache
@@ -422,7 +432,9 @@ class OptimusAgent:
     # ------------------------------------------------------------------
     # System Prompt Builder
     # ------------------------------------------------------------------
-    def _build_system_prompt(self, message: str = "") -> str:
+    async def _build_system_prompt(self, message: str = "") -> str:
+        async with self._history_lock:
+            pass # Explicitly within the lock as requested
         msg_lower = message.lower()
         active_plugins = []
         for name, p in plugin_manager.plugins.items():
@@ -550,7 +562,7 @@ If you do not need to use a tool, just respond with normal text. Keep responses 
                     for call in chunk.function_calls:
                         if call.name == "execute_desktop_operation":
                             args = call.args
-                            res = execute_desktop_operation(
+                            res = await execute_desktop_operation(
                                 args.get("app_name", ""),
                                 args.get("operations_json") or args.get("operations", "[]"),
                             )
@@ -749,6 +761,7 @@ If you do not need to use a tool, just respond with normal text. Keep responses 
         engine:        str = "LOCAL",
         max_depth:     int = _MAX_TOOL_DEPTH,
         current_depth: int = 0,
+        approved:      bool = False,
     ) -> AsyncIterator[str]:
         """
         Primary async generator that orchestrates LLM inference and recursive
@@ -794,7 +807,7 @@ If you do not need to use a tool, just respond with normal text. Keep responses 
             if current_depth == 0:
                 await self._append_history("user", message, image_data)
 
-            system_prompt = self._build_system_prompt(message)
+            system_prompt = await self._build_system_prompt(message)
 
             # ── Dual-tier cache check (depth 0 only) ─────────────────────────
             if current_depth == 0:
@@ -815,12 +828,15 @@ If you do not need to use a tool, just respond with normal text. Keep responses 
                     )
                     documents = results.get("documents", [[]])[0]
                     if documents:
-                        memory_context = "\n---\n".join(documents)
+                        safe_docs = [doc.replace("```", "\\`\\`\\`").replace("===", "---") for doc in documents]
+                        memory_context = "\n---\n".join(safe_docs)
                         system_prompt += (
                             f"\n\n[RECALLED CONTEXT & USER FEEDBACK]\n"
                             f"The following are past interactions and explicit feedback (POSITIVE/NEGATIVE) from the user.\n"
                             f"You MUST dynamically adjust your behavior to respect negative feedback and reinforce positive feedback.\n\n"
+                            f"=== BEGIN SAFE CONTEXT BLOCK ===\n"
                             f"{memory_context}\n"
+                            f"=== END SAFE CONTEXT BLOCK ===\n"
                         )
                         logger.info(f"RAG: Injected {len(documents)} episodic memories.")
                 except Exception as exc:
@@ -828,35 +844,54 @@ If you do not need to use a tool, just respond with normal text. Keep responses 
 
             # ── Engine selection ─────────────────────────────────────────────
             stream = None
+            chat_history = await self.get_chat_history()
             if engine in ("GPT", "OPENAI"):
-                stream = self._gpt_stream(system_prompt, self.chat_history)
+                stream = self._gpt_stream(system_prompt, chat_history)
             elif engine == "DEEPSEEK":
-                stream = self._deepseek_stream(system_prompt, self.chat_history)
+                stream = self._deepseek_stream(system_prompt, chat_history)
             elif engine in ("ANTHROPIC", "CLAUDE"):
-                stream = self._anthropic_stream(system_prompt, self.chat_history)
+                stream = self._anthropic_stream(system_prompt, chat_history)
             elif engine == "GEMINI":
                 # Catch Gemini HTTP initialization errors directly, fallback to Claude
                 try:
-                    stream = self._gemini_stream(system_prompt, self.chat_history, image_data)
+                    stream = self._gemini_stream(system_prompt, chat_history, image_data)
                 except Exception as e:
                     logger.error(f"Gemini init error: {e}. Failing over to Claude.")
-                    stream = self._anthropic_stream(system_prompt, self.chat_history)
+                    stream = self._anthropic_stream(system_prompt, chat_history)
             else:
                 # LOCAL = Ollama with Gemini fallback
-                stream = self._ollama_stream(system_prompt, self.chat_history, image_data)
+                stream = self._ollama_stream(system_prompt, chat_history, image_data)
 
             # ── Stream tokens and accumulate full response ───────────────────
             response_parts: list[str] = []
+            buffer = ""
+            is_tool_call = False
+            
             try:
                 async for token in stream:
                     response_parts.append(token)
-                    yield token
+                    buffer += token
+                    
+                    # Sliding buffer lookahead to intercept JSON tool calls
+                    if not is_tool_call:
+                        if "```json" in buffer or '{"tool":' in buffer:
+                            is_tool_call = True
+                            continue
+                            
+                        if "```" not in buffer and "{" not in buffer:
+                            yield buffer
+                            buffer = ""
+                        elif len(buffer) > 20:
+                            yield buffer[:-10]
+                            buffer = buffer[-10:]
+                    else:
+                        pass # Silently accumulate tool call
             except httpx.HTTPError as he:
                 # Catch stream-time HTTP errors for Gemini and fallback to Claude
                 if engine == "GEMINI":
                     logger.error(f"Gemini streaming HTTP Error: {he}. Failing over to Claude.")
                     yield "\n[Network Failover] Routing query to Anthropic Claude...\n"
-                    stream = self._anthropic_stream(system_prompt, self.chat_history)
+                    stream = self._anthropic_stream(system_prompt, await self.get_chat_history())
                     async for token in stream:
                         response_parts.append(token)
                         yield token
@@ -865,6 +900,9 @@ If you do not need to use a tool, just respond with normal text. Keep responses 
             except Exception as e:
                 # Pass up generic exceptions
                 raise e
+
+            if not is_tool_call and buffer:
+                yield buffer
 
             full_response = "".join(response_parts)
 
@@ -911,6 +949,7 @@ If you do not need to use a tool, just respond with normal text. Keep responses 
                         if isinstance(t_args, dict):
                             t_args.pop("approved", None)
                             t_args.pop("_approved", None)
+                            t_args["_approved"] = approved
                         res = await self.execute_plugin_async(t_name, t_args)
                         return t_name, res
 
@@ -920,7 +959,13 @@ If you do not need to use a tool, just respond with normal text. Keep responses 
                     results = await asyncio.gather(*[run_tool(c) for c in tool_calls])
 
                     for t_name, result in results:
-                        if isinstance(result, str) and result.startswith("SCREENSHOT_BASE64:"):
+                        if isinstance(result, str) and result.startswith("__APPROVAL_REQUIRED__:"):
+                            cmd_text = result[len("__APPROVAL_REQUIRED__:"):]
+                            self.request_approval(cmd_text)
+                            yield json.dumps({"type": "approval_required", "command": cmd_text})
+                            follow_msg = f"SYSTEM: Execution paused. Waiting for user approval to run '{cmd_text}'."
+                            await self._append_history("user", follow_msg)
+                        elif isinstance(result, str) and result.startswith("SCREENSHOT_BASE64:"):
                             img_b64  = result[len("SCREENSHOT_BASE64:"):]
                             img_url  = f"data:image/png;base64,{img_b64}"
                             follow_msg = "SYSTEM: Screenshot captured. Describe what you see."
@@ -941,6 +986,7 @@ If you do not need to use a tool, just respond with normal text. Keep responses 
                         engine=engine,
                         max_depth=max_depth,
                         current_depth=current_depth + 1,
+                        approved=False,
                     ):
                         yield tok
                     return
@@ -960,13 +1006,13 @@ If you do not need to use a tool, just respond with normal text. Keep responses 
                 # Async Memory Commit to ChromaDB
                 if self._memory_col:
                     try:
-                        mem_id = hashlib.sha256(f"{message}{full_response}".encode('utf-8')).hexdigest()[:16]
+                        mem_id = hashlib.sha256(f"{message}{full_response}".encode('utf-8')).hexdigest()
                         doc_text = f"User: {message}\nOptimus: {full_response}"
                         
                         # Fire and forget async commit to thread pool
                         asyncio.create_task(
                             asyncio.to_thread(
-                                self._memory_col.add,
+                                self._memory_col.upsert,
                                 documents=[doc_text],
                                 ids=[mem_id]
                             )

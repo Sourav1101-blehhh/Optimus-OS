@@ -9,6 +9,7 @@ PLUGIN_METADATA = {
 }
 
 DB_FILE = os.path.join(os.path.dirname(__file__), "..", "..", "memory.json")
+memory_lock = asyncio.Lock()
 
 async def load_db():
     if not os.path.exists(DB_FILE):
@@ -33,9 +34,10 @@ async def execute(args: dict = None) -> str:
         
     action = args["action"].lower()
     
-    db = await load_db()
-    
-    if action == "write":
+    async with memory_lock:
+        db = await load_db()
+        
+        if action == "write":
         key = args.get("key", "General Notes")
         value = args.get("value")
         if not value:
@@ -50,6 +52,8 @@ async def execute(args: dict = None) -> str:
         return f"Successfully remembered under '{key}': {value}"
         
     elif action == "read":
+        async with memory_lock:
+            db = await load_db()
         key = args.get("key")
         if not db:
             return "Memory is currently empty."
@@ -69,10 +73,12 @@ async def execute(args: dict = None) -> str:
             return "All Memories:\n" + "\n".join(output)
             
     elif action == "clear":
-        key = args.get("key")
-        if key and key in db:
-            del db[key]
-            await save_db(db)
+        async with memory_lock:
+            db = await load_db()
+            key = args.get("key")
+            if key and key in db:
+                del db[key]
+                await save_db(db)
             return f"Cleared memories for '{key}'."
         else:
             return "Error: Provide a valid 'key' to clear."

@@ -37,7 +37,7 @@ def execute(args: dict = None) -> str:
         timeout = min(int(args.get("timeout", 10)), 60)
     except (ValueError, TypeError):
         timeout = 10
-    approved = args.get("approved", False)
+    approved = bool(args.get("approved", False) or args.get("_approved", False))
 
     # ── Gate: require explicit frontend approval ───────────────────────────
     if not approved:

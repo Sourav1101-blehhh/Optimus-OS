@@ -65,11 +65,20 @@ export class NetworkManager extends EventTarget {
      * Initiates the WebSocket connection and stores the token in sessionStorage.
      * This is the only entry point for establishing a connection.
      *
-     * @param {string} token - The master password string (persisted to sessionStorage)
+     * @param {string} token - The master password string (persisted to sessionStorage as a hash)
      */
-    connect(token) {
-        this.token = token;
-        sessionStorage.setItem('optimus_session_token', token);
+    async connect(token) {
+        if (token.length === 64 && /^[0-9a-f]{64}$/i.test(token)) {
+            this.token = token;
+        } else {
+            const encoder = new TextEncoder();
+            const data = encoder.encode(token);
+            const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+            const hashArray = Array.from(new Uint8Array(hashBuffer));
+            const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+            this.token = hashHex;
+        }
+        sessionStorage.setItem('optimus_session_token', this.token);
         this._intentionalClose = false;
         this._openSocket();
     }
@@ -158,6 +167,25 @@ export class NetworkManager extends EventTarget {
                         break;
                     case 'tool_depth_exceeded':
                         this.dispatchEvent(new CustomEvent('tool_depth_exceeded', { detail: data.message }));
+                        break;
+                    case 'rate_limited':
+                        const warningDiv = document.createElement('div');
+                        warningDiv.style.position = 'fixed';
+                        warningDiv.style.top = '20px';
+                        warningDiv.style.left = '50%';
+                        warningDiv.style.transform = 'translateX(-50%)';
+                        warningDiv.style.padding = '15px 30px';
+                        warningDiv.style.background = 'rgba(255, 170, 0, 0.9)';
+                        warningDiv.style.color = '#000';
+                        warningDiv.style.fontWeight = 'bold';
+                        warningDiv.style.fontFamily = 'var(--font-cyber), monospace';
+                        warningDiv.style.borderRadius = '4px';
+                        warningDiv.style.zIndex = '999999';
+                        warningDiv.style.boxShadow = '0 0 20px rgba(255, 170, 0, 0.8)';
+                        warningDiv.style.border = '2px solid #fff';
+                        warningDiv.innerText = data.data || "RATE LIMIT EXCEEDED. PLEASE SLOW DOWN.";
+                        document.body.appendChild(warningDiv);
+                        setTimeout(() => warningDiv.remove(), 4000);
                         break;
                     case 'log':
                         console.info('[Optimus Backend]', data.data);

@@ -34,6 +34,7 @@ WAKE_EVENT_QUEUE = None
 def get_wake_queue() -> asyncio.Queue:
     global WAKE_EVENT_QUEUE
     if WAKE_EVENT_QUEUE is None:
+        loop = asyncio.get_running_loop()
         WAKE_EVENT_QUEUE = asyncio.Queue()
     return WAKE_EVENT_QUEUE
 
@@ -112,7 +113,7 @@ async def stream_neural_tts(text_stream: AsyncGenerator[str, None]) -> AsyncGene
         await asyncio.sleep(0.05)
         
         for _ in range(5):
-            chunk = np.random.normal(0, 0.01, samples_per_chunk).astype(np.float32)
+            chunk = np.zeros(samples_per_chunk, dtype=np.float32)
             yield chunk.tobytes()
             await asyncio.sleep(0.1)
 
@@ -168,8 +169,9 @@ class WakeWordDaemon:
                             # Push to asyncio loop thread-safely
                             if hasattr(self, '_loop') and self._loop:
                                 try:
-                                    q = get_wake_queue()
-                                    self._loop.call_soon_threadsafe(q.put_nowait, True)
+                                    self._loop.call_soon_threadsafe(
+                                        lambda: get_wake_queue().put_nowait(True)
+                                    )
                                 except Exception as e:
                                     logger.error(f"Failed to push wake event: {e}")
         except Exception as e:

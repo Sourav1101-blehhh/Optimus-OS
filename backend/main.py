@@ -96,6 +96,12 @@ logger.info(
 )
 
 def _verify_password(candidate: str) -> bool:
+    if len(candidate) == 64:
+        try:
+            candidate_bytes = bytes.fromhex(candidate)
+            return hmac.compare_digest(MASTER_PW_HASH, candidate_bytes)
+        except ValueError:
+            pass
     candidate_hash = hashlib.sha256(candidate.encode("utf-8")).digest()
     return hmac.compare_digest(MASTER_PW_HASH, candidate_hash)
 
@@ -178,16 +184,11 @@ class ConnectionManager:
     def __init__(self) -> None:
         self.active_connections: list[WebSocket] = []
         self._agents: dict[WebSocket, OptimusAgent] = {}
+        self._locks: dict[WebSocket, asyncio.Lock] = {}
 
     async def connect(self, websocket: WebSocket) -> OptimusAgent:
-        if len(self.active_connections) >= 5:
-            logger.warning("Max WebSocket connections reached. Rejecting new connection.")
-            try:
-                await websocket.close(code=1013, reason="Server busy")
-            except RuntimeError:
-                pass
-            return None
         self.active_connections.append(websocket)
+        self._locks[websocket] = asyncio.Lock()
         agent = OptimusAgent()          
         self._agents[websocket] = agent
         logger.info(f"Neural link established.  Active links: {len(self.active_connections)}")
@@ -203,28 +204,39 @@ class ConnectionManager:
         if agent:
             asyncio.create_task(agent.close())
             del self._agents[websocket]
+        if websocket in self._locks:
+            del self._locks[websocket]
         logger.warning(f"Neural link severed.  Active links: {len(self.active_connections)}")
 
     async def safe_send_json(self, websocket: WebSocket, payload: dict) -> None:
-        try:
-            await websocket.send_json(payload)
-        except Exception as exc:
-            logger.error(f"Failed to transmit payload: {exc}")
-            self.disconnect(websocket)
+        lock = self._locks.get(websocket)
+        if not lock: return
+        async with lock:
+            try:
+                await websocket.send_json(payload)
+            except Exception as exc:
+                logger.error(f"Failed to transmit payload: {exc}")
+                self.disconnect(websocket)
 
     async def safe_send_text(self, websocket: WebSocket, text: str) -> None:
-        try:
-            await websocket.send_text(text)
-        except Exception as exc:
-            logger.error(f"Failed to transmit text frame: {exc}")
-            self.disconnect(websocket)
+        lock = self._locks.get(websocket)
+        if not lock: return
+        async with lock:
+            try:
+                await websocket.send_text(text)
+            except Exception as exc:
+                logger.error(f"Failed to transmit text frame: {exc}")
+                self.disconnect(websocket)
 
     async def safe_send_bytes(self, websocket: WebSocket, data: bytes) -> None:
-        try:
-            await websocket.send_bytes(data)
-        except Exception as exc:
-            logger.error(f"Failed to transmit bytes frame: {exc}")
-            self.disconnect(websocket)
+        lock = self._locks.get(websocket)
+        if not lock: return
+        async with lock:
+            try:
+                await websocket.send_bytes(data)
+            except Exception as exc:
+                logger.error(f"Failed to transmit bytes frame: {exc}")
+                self.disconnect(websocket)
 
     async def send_system_message(self, websocket: WebSocket, message: str) -> None:
         await self.safe_send_json(websocket, {"type": "log", "data": message})
@@ -353,7 +365,7 @@ _RAW_ROUTING_TABLE: dict[str, str] = {
 }
 
 _SEMANTIC_PATTERNS: list[tuple[re.Pattern, str]] = [
-    (re.compile(rf"^{re.escape(kw)}\b", re.IGNORECASE), plugin)
+    (re.compile(rf"\b{re.escape(kw)}\b", re.IGNORECASE), plugin)
     for kw, plugin in sorted(_RAW_ROUTING_TABLE.items(), key=lambda kv: len(kv[0]), reverse=True)
 ]
 
@@ -370,6 +382,14 @@ def get_semantic_route(text: str) -> Optional[str]:
 # ---------------------------------------------------------------------------
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket) -> None:
+    if len(manager.active_connections) >= 5:
+        logger.warning("Max WebSocket connections reached. Rejecting new connection before handshake.")
+        try:
+            await websocket.close(code=1013, reason="Server busy")
+        except RuntimeError:
+            pass
+        return
+
     await websocket.accept()
 
     try:
@@ -438,7 +458,10 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
             message_timestamps.append(now)
 
             try:
-                payload = WebSocketMessage.model_validate(json.loads(raw_data))
+                payload_dict = json.loads(raw_data)
+                payload_dict.pop("approved", None)
+                payload_dict.pop("_approved", None)
+                payload = WebSocketMessage.model_validate(payload_dict)
             except (json.JSONDecodeError, ValidationError) as exc:
                 await manager.send_system_message(websocket, "Error: Invalid or malformed JSON frame — ignored.")
                 continue
@@ -454,7 +477,9 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
             user_msg    = (payload.text or "").strip()
             engine      = (payload.engine or "LOCAL").upper()
             image_data  = payload.image_data
-            approved    = bool(payload.approved)
+            
+            # Determine approval from server state
+            approved = agent.check_and_consume_approval(user_msg)
 
             if not user_msg:
                 continue
@@ -477,11 +502,12 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
                 else:
                     await manager.send_state(websocket, "idle")
 
-                    if isinstance(result, str) and result.startswith("__APPROVAL_REQUIRED__:"):
-                        cmd_text = result[len("__APPROVAL_REQUIRED__:"):]
-                        await manager.safe_send_json(websocket, {"type": "approval_required", "command": cmd_text})
-                    else:
-                        await manager.safe_send_json(websocket, {"type": "chat", "data": f"[LOCAL] {result}"})
+                if isinstance(result, str) and result.startswith("__APPROVAL_REQUIRED__:"):
+                    cmd_text = result[len("__APPROVAL_REQUIRED__:"):]
+                    agent.request_approval(cmd_text)
+                    await manager.safe_send_json(websocket, {"type": "approval_required", "command": cmd_text})
+                else:
+                    await manager.safe_send_json(websocket, {"type": "chat", "data": f"[LOCAL] {result}"})
                     semantic_success = True
             
             if semantic_success:
@@ -490,8 +516,14 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
             try:
                 async def text_generator():
                     async for token_piece in agent.process_message_stream(
-                        user_msg, image_data=image_data, engine=engine
+                        user_msg, image_data=image_data, engine=engine, approved=approved
                     ):
+                        if token_piece.startswith('{"type":'):
+                            try:
+                                pkt = json.loads(token_piece)
+                                await manager.safe_send_json(websocket, pkt)
+                                continue
+                            except: pass
                         await manager.safe_send_text(websocket, token_piece)
                         yield token_piece
 

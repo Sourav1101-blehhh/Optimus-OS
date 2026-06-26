@@ -21,6 +21,11 @@ class ProactiveScheduler:
         # Ensure data directory exists
         os.makedirs(os.path.dirname(self.jobs_file), exist_ok=True)
         self._init_jobs_file()
+        self._broadcast_fn = None
+
+    def register_broadcast_fn(self, fn):
+        """Called once from main.py after all modules are loaded."""
+        self._broadcast_fn = fn
 
     def _init_jobs_file(self):
         if not os.path.exists(self.jobs_file):
@@ -48,20 +53,20 @@ class ProactiveScheduler:
         
         import backend.core.plugin_manager
         plugin_manager = backend.core.plugin_manager.plugin_manager
-        import backend.main
-        manager = backend.main.manager # Circular import guard
         
         # In a real environment, we would pass specific args. Here we pass a generic check intent.
         try:
             result = await plugin_manager.execute_async(action, {"command": "Proactive automated check", "query": "", "_approved": True})
             
             # If the result suggests a critical state (e.g. CPU > 90%), we push an unprompted alert.
-            if "alert" in result.lower() or "critical" in result.lower():
+            if isinstance(result, str) and result.startswith("__PROACTIVE_ALERT__:"):
+                alert_message = result[len("__PROACTIVE_ALERT__:"):]
                 payload = {
                     "type": "chat",
-                    "data": f"[PROACTIVE ALERT] Routine '{job_def.get('id')}' executed.\n\n{result}"
+                    "data": f"[PROACTIVE ALERT] Routine '{job_def.get('id')}' executed.\n\n{alert_message}"
                 }
-                await manager.broadcast(payload)
+                if self._broadcast_fn:
+                    await self._broadcast_fn(payload)
                 
         except Exception as e:
             logger.error(f"Proactive job '{job_def.get('id')}' failed: {e}")

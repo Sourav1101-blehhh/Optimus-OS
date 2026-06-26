@@ -15,6 +15,17 @@ PLUGIN_METADATA: dict[str, Any] = {
     "keywords": ["smart home", "lights", "turn on", "turn off", "device", "home assistant", "hass", "thermostat"],
 }
 
+_hass_session: aiohttp.ClientSession | None = None
+
+async def _get_hass_session() -> aiohttp.ClientSession:
+    global _hass_session
+    if _hass_session is None or _hass_session.closed:
+        _hass_session = aiohttp.ClientSession(
+            connector=aiohttp.TCPConnector(limit=10, limit_per_host=5),
+            timeout=aiohttp.ClientTimeout(total=10)
+        )
+    return _hass_session
+
 async def execute(args: dict = None) -> str:
     if not args or "action" not in args or "entity_id" not in args:
         return "Error: Both 'action' (e.g., turn_on, turn_off) and 'entity_id' (e.g., light.living_room) must be provided."
@@ -57,10 +68,10 @@ async def execute(args: dict = None) -> str:
             payload[k] = v
 
     try:
-        async with aiohttp.ClientSession() as session:
-            async with session.post(api_endpoint, headers=headers, json=payload, timeout=10.0) as response:
-                response.raise_for_status()
-                data = await response.json()
-                return f"[Home Assistant] Successfully executed '{service}' on '{entity_id}'. State changes: {data}"
+        session = await _get_hass_session()
+        async with session.post(api_endpoint, headers=headers, json=payload, timeout=10.0) as response:
+            response.raise_for_status()
+            data = await response.json()
+            return f"[Home Assistant] Successfully executed '{service}' on '{entity_id}'. State changes: {data}"
     except Exception as e:
         return f"[Home Assistant] Connection error: {e}"

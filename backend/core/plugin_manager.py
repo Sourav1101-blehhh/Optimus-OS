@@ -143,7 +143,9 @@ class PluginManager:
         """
         try:
             validated = PluginInput(**args)
-            return validated.model_dump(by_alias=True, exclude_unset=False)
+            validated_fields = validated.model_dump(by_alias=True, exclude_unset=True)
+            # Merge: start with original args, then overlay only the fields that were explicitly validated
+            return {**args, **validated_fields}
         except ValidationError as exc:
             raise ValueError(f"Plugin argument validation failed: {exc}") from exc
 

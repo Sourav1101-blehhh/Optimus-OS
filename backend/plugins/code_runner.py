@@ -13,6 +13,37 @@ PLUGIN_METADATA = {
 }
 
 # ---------------------------------------------------------------------------
+# AST Static Analysis Gate
+# ---------------------------------------------------------------------------
+import ast
+
+_BLOCKED_MODULES   = {"os", "subprocess", "shutil", "socket", "ctypes", "sys"}
+_BLOCKED_BUILTINS  = {"exec", "eval", "compile", "__import__"}
+
+def _static_scan(code: str) -> list[str]:
+    """Returns list of violation strings, empty if clean."""
+    violations = []
+    try:
+        tree = ast.parse(code)
+    except SyntaxError as e:
+        violations.append(f"SyntaxError: {e}")
+        return violations
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.Import, ast.ImportFrom)):
+            names = [a.name.split(".")[0] for a in node.names]
+            for n in names:
+                if n in _BLOCKED_MODULES:
+                    violations.append(f"Blocked import: '{n}'")
+        elif isinstance(node, ast.Call):
+            func = node.func
+            name = (func.id if isinstance(func, ast.Name) else
+                    func.attr if isinstance(func, ast.Attribute) else None)
+            if name in _BLOCKED_BUILTINS:
+                violations.append(f"Blocked builtin: '{name}()'")
+    return violations
+
+
+# ---------------------------------------------------------------------------
 # Human-in-the-loop gate
 # ---------------------------------------------------------------------------
 # Arbitrary code execution is a high-risk operation. Before running any
@@ -43,6 +74,13 @@ def execute(args: dict = None) -> str:
     if not approved:
         return f"__APPROVAL_REQUIRED__:{code}"
 
+    # ── Gate: Static AST Analysis ──────────────────────────────────────────
+    violations = _static_scan(code)
+    if violations:
+        v_list = ", ".join(violations)
+        return f"__UNSAFE_CODE__:Blocked by static analysis: {v_list}"
+
+
     import uuid
     workspace = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "scratch"))
     os.makedirs(workspace, exist_ok=True)
@@ -57,6 +95,10 @@ def execute(args: dict = None) -> str:
         wsl_script_path = f"/mnt/{drive[0].lower()}{tail.replace(os.sep, '/')}"
 
         import shutil
+        creationflags = 0
+        if sys.platform == "win32":
+            creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000)
+
         if sys.platform == "win32" and shutil.which("wsl"):
             cmd = ["wsl", "-e", "python3", wsl_script_path]
         else:
@@ -69,6 +111,7 @@ def execute(args: dict = None) -> str:
             text=True,
             timeout=timeout,
             cwd=workspace,
+            creationflags=creationflags,
         )
 
         output = ""

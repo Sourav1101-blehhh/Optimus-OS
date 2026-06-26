@@ -8,6 +8,18 @@ PLUGIN_METADATA = {
     "keywords": ["search", "web", "internet", "google", "duckduckgo", "find out", "news", "wikipedia"]
 }
 
+_http_client: httpx.AsyncClient | None = None
+
+def _get_http_client() -> httpx.AsyncClient:
+    global _http_client
+    if _http_client is None or _http_client.is_closed:
+        _http_client = httpx.AsyncClient(
+            limits=httpx.Limits(max_keepalive_connections=10, max_connections=20),
+            timeout=8.0,
+            headers={"User-Agent": "OptimusBot/5.1 (optimus@example.com)"}
+        )
+    return _http_client
+
 async def execute(args: dict = None) -> str:
     if not args or "query" not in args:
         return "Error: No search query provided."
@@ -31,19 +43,19 @@ async def execute(args: dict = None) -> str:
     try:
         import urllib.parse
         encoded_query = urllib.parse.quote(query)
-        async with httpx.AsyncClient() as client:
-            wiki_res = await client.get(
-                f"https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch={encoded_query}&utf8=&format=json",
-                timeout=5.0,
-                headers={"User-Agent": "OptimusBot/1.0 (optimus@example.com)"}
-            )
-            if wiki_res.status_code == 200:
-                wiki_data = wiki_res.json()
-                search_items = wiki_data.get("query", {}).get("search", [])[:max_results]
-                for r in search_items:
-                    import re
-                    snippet = re.sub(r'<[^>]+>', '', r.get('snippet', ''))
-                    results.append(f"[Wikipedia] Title: {r.get('title')}\nSnippet: {snippet}")
+        client = _get_http_client()
+        wiki_res = await client.get(
+            f"https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch={encoded_query}&utf8=&format=json",
+            timeout=5.0,
+            headers={"User-Agent": "OptimusBot/1.0 (optimus@example.com)"}
+        )
+        if wiki_res.status_code == 200:
+            wiki_data = wiki_res.json()
+            search_items = wiki_data.get("query", {}).get("search", [])[:max_results]
+            for r in search_items:
+                import re
+                snippet = re.sub(r'<[^>]+>', '', r.get('snippet', ''))
+                results.append(f"[Wikipedia] Title: {r.get('title')}\nSnippet: {snippet}")
     except Exception as e:
         results.append(f"[Wikipedia Error] {e}")
         

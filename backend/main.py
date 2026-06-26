@@ -178,8 +178,21 @@ app.add_middleware(
 
 
 # ---------------------------------------------------------------------------
-# Connection Manager
+# Connection Manager & Rate Limiting
 # ---------------------------------------------------------------------------
+_GLOBAL_MSG_TIMESTAMPS: list[float] = []
+_GLOBAL_RATE_LIMIT     = int(os.getenv("OPTIMUS_GLOBAL_RATE_LIMIT", "20"))  # msgs per 5s
+_GLOBAL_RATE_WINDOW    = 5.0  # seconds
+
+def _check_global_rate() -> bool:
+    """Returns True if request is allowed, False if globally rate limited."""
+    now = asyncio.get_running_loop().time()
+    _GLOBAL_MSG_TIMESTAMPS[:] = [t for t in _GLOBAL_MSG_TIMESTAMPS if now - t < _GLOBAL_RATE_WINDOW]
+    if len(_GLOBAL_MSG_TIMESTAMPS) >= _GLOBAL_RATE_LIMIT:
+        return False
+    _GLOBAL_MSG_TIMESTAMPS.append(now)
+    return True
+
 class ConnectionManager:
     def __init__(self) -> None:
         self.active_connections: list[WebSocket] = []
@@ -251,6 +264,8 @@ class ConnectionManager:
         await asyncio.gather(*tasks, return_exceptions=True)
 
 manager = ConnectionManager()
+optimus_scheduler.register_broadcast_fn(manager.broadcast)
+
 
 # ---------------------------------------------------------------------------
 # Wake Word Queue Listener
@@ -450,6 +465,10 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
                 return
 
             # ── WebSocket Rate Limiting (10 msgs / 5s) ──
+            if not _check_global_rate():
+                await manager.safe_send_json(websocket, {"type": "rate_limited", "data": "Global rate limit exceeded. Please slow down."})
+                continue
+                
             now = asyncio.get_running_loop().time()
             message_timestamps = [t for t in message_timestamps if now - t < 5.0]
             if len(message_timestamps) >= 10:

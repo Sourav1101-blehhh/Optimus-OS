@@ -58,6 +58,8 @@ try:
 except ImportError:
     logger.warning("kokoro_onnx not installed. Using TTS fallback.")
 
+_TTS_MAX_BUFFER_CHARS = 200
+
 async def text_processor(text_stream: AsyncGenerator[str, None]) -> AsyncGenerator[str, None]:
     buffer = ""
     async for token in text_stream:
@@ -73,6 +75,9 @@ async def text_processor(text_stream: AsyncGenerator[str, None]) -> AsyncGenerat
                 if sentence:
                     yield sentence
             buffer = parts[-1]
+        elif len(buffer) >= _TTS_MAX_BUFFER_CHARS:
+            yield buffer.strip()
+            buffer = ""
             
     if buffer.strip():
         yield buffer.strip()

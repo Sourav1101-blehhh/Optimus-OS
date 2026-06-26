@@ -12,3 +12,10 @@ openai
 httpx
 duckduckgo-search
 uvloop; sys_platform != 'win32'
+chromadb>=0.4.0
+vosk>=0.3.45
+sounddevice>=0.4.6
+numpy>=1.24.0
+pydantic>=2.0.0
+aiohttp
+apscheduler

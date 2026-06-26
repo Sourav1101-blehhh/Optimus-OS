@@ -131,7 +131,7 @@ class OptimusAgent:
     # ------------------------------------------------------------------
     # Cache constants
     # ------------------------------------------------------------------
-    _CACHE_MAX:   int = 512   # Hard LRU eviction cap
+    _CACHE_MAX:   int = 256   # Hard LRU eviction cap (Reduced to 256 for faster O(n) scan)
     _NGRAM_N:     int = 3     # Trigram size for Tier-1 fingerprinting
     _NGRAM_TOP:   int = 12    # Top-N trigrams used per fingerprint
     _JACCARD_MIN: float = 0.94  # Minimum Jaccard similarity for Tier-1 hit
@@ -361,7 +361,18 @@ class OptimusAgent:
         union        = len(set_a | set_b)
         return intersection / union if union else 0.0
 
-    def _cache_lookup(self, prompt: str) -> Optional[str]:
+    def _jaccard_scan_sync(self, query_fp: str) -> tuple[float, Optional[str]]:
+        best_sim: float = 0.0
+        best_key: Optional[str] = None
+        for stored_fp, canonical_key in self._fp_index.items():
+            if canonical_key not in self._cache_store:
+                continue
+            sim = self._jaccard_similarity(query_fp, stored_fp)
+            if sim > best_sim:
+                best_sim, best_key = sim, canonical_key
+        return best_sim, best_key
+
+    async def _cache_lookup(self, prompt: str) -> Optional[str]:
         """
         Two-tier cache lookup:
 
@@ -390,15 +401,9 @@ class OptimusAgent:
 
         # Tier 1 — fuzzy tri-gram Jaccard similarity
         query_fp = self._trigram_fingerprint(prompt)
-        best_sim: float = 0.0
-        best_key: Optional[str] = None
-
-        for stored_fp, canonical_key in self._fp_index.items():
-            if canonical_key not in self._cache_store:
-                continue
-            sim = self._jaccard_similarity(query_fp, stored_fp)
-            if sim > best_sim:
-                best_sim, best_key = sim, canonical_key
+        
+        # Offload O(n) scan to thread pool to avoid blocking the event loop
+        best_sim, best_key = await asyncio.to_thread(self._jaccard_scan_sync, query_fp)
 
         if best_sim >= self._JACCARD_MIN and best_key:
             self._cache_store.move_to_end(best_key)
@@ -811,7 +816,7 @@ If you do not need to use a tool, just respond with normal text. Keep responses 
 
             # ── Dual-tier cache check (depth 0 only) ─────────────────────────
             if current_depth == 0:
-                cached = self._cache_lookup(message)
+                cached = await self._cache_lookup(message)
                 if cached:
                     logger.info("Semantic cache HIT — zero-credit local yield.")
                     await self._append_history("model", cached)

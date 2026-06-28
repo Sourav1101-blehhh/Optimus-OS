@@ -163,7 +163,7 @@ async def execute(args: dict = None) -> str:
                 stderr_str += "\n...[TRUNCATED]"
             output += f"\nSTDERR:\n{stderr_str}"
         if result.returncode != 0:
-            output += f"\n(Exit code: {result.returncode})"
+            output = f"Error: Script failed with exit code {result.returncode}\n{output}"
 
         return output.strip() or "(Script executed successfully with no output.)"
 

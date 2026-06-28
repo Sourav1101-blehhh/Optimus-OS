@@ -113,6 +113,40 @@ def monitor_processes(icon):
             time.sleep(1)
             os._exit(1)
 
+ngrok_url = None
+ngrok_auth = None
+
+def start_ngrok():
+    global ngrok_url, ngrok_auth
+    try:
+        from pyngrok import ngrok
+        import secrets
+        import string
+        
+        # Generate secure random password
+        alphabet = string.ascii_letters + string.digits
+        password = ''.join(secrets.choice(alphabet) for i in range(12))
+        ngrok_auth = f"optimus:{password}"
+        
+        # Start tunnel to frontend port 8080
+        tunnel = ngrok.connect(8080, "http", auth=ngrok_auth)
+        ngrok_url = tunnel.public_url
+        
+        # Write to desktop for user convenience
+        with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "remote_access.txt"), "w") as f:
+            f.write(f"Optimus Remote Access\nURL: {ngrok_url}\nUsername: optimus\nPassword: {password}\n")
+            
+    except Exception as e:
+        print(f"Ngrok failed to start: {e}")
+
+def show_remote_access(icon, item):
+    import ctypes
+    if ngrok_url:
+        msg = f"URL: {ngrok_url}\nAuth: {ngrok_auth}"
+        ctypes.windll.user32.MessageBoxW(0, msg, "Optimus Remote Access", 0x40)
+    else:
+        ctypes.windll.user32.MessageBoxW(0, "Ngrok tunnel is not active.", "Optimus Remote Access", 0x10)
+
 def main():
     # Start the FastAPI server in a background process
     t1 = threading.Thread(target=start_backend, daemon=True)
@@ -122,12 +156,17 @@ def main():
     t2 = threading.Thread(target=start_frontend, daemon=True)
     t2.start()
     
+    # Start Ngrok Remote Tunnel
+    t3 = threading.Thread(target=start_ngrok, daemon=True)
+    t3.start()
+    
     # Give it a second to bind
     time.sleep(1)
 
     # Setup the system tray icon
     menu = (
         item("Open Dashboard", open_dashboard, default=True),
+        item("Show Remote Access", show_remote_access),
         item("View Core Logs", view_logs),
         item("Terminate Assistant Core", terminate_core)
     )

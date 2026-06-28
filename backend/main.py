@@ -138,6 +138,9 @@ async def lifespan(app: FastAPI):
     # Start Daemons
     wake_word_engine.start()
     optimus_scheduler.start()
+    
+    from backend.core.daemon import start_daemons
+    start_daemons()
 
     telemetry_task = asyncio.create_task(hardware_telemetry_loop(), name="telemetry")
     wake_listener = asyncio.create_task(wake_word_listener(), name="wake_listener")

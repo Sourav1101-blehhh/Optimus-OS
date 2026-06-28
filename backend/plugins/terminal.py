@@ -20,26 +20,16 @@ _TIMEOUT_SECONDS: int = 15
 
 
 async def _run_command_async(command: str) -> str:
-    forbidden = ['&', '|', ';', '>', '<', '$', '`']
-    if any(char in command for char in forbidden):
-        raise PermissionError("Access denied: Command contains forbidden shell chaining characters.")
-        
-    try:
-        args = shlex.split(command)
-    except Exception as e:
-        raise PermissionError(f"Failed to parse command safely: {e}")
-        
-    if not args:
+    if not command:
         return "Error: Empty command."
 
     try:
+        # Run using powershell to support builtins like echo and $env variables
         proc = await asyncio.create_subprocess_exec(
-            *args,
+            "powershell", "-NoProfile", "-NonInteractive", "-Command", command,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
-    except FileNotFoundError:
-        return f"Error: Command '{args[0]}' not found."
     except Exception as e:
         return f"Error executing command: {e}"
 

@@ -47,34 +47,22 @@ class DockerSandbox:
                 cmd = f"sh -c '{code}'"
 
             # Run securely in a throwaway container with strict limits
-            container = await asyncio.to_thread(
-                self.client.containers.run,
-                image,
-                cmd,
-                detach=True,
-                mem_limit="128m",
-                cpu_quota=50000,
-                network_disabled=True,
-                remove=True
-            )
-            
-            # Wait with a timeout
-            start = time.time()
-            while time.time() - start < 10.0:
-                await asyncio.sleep(0.5)
-                # If remove=True, getting container might raise NotFound when it finishes
-                try:
-                    logs = container.logs().decode("utf-8")
-                    if "Exited" in container.status:
-                        return logs
-                except:
-                    # Container finished and was removed
-                    break
-                    
-            return "Execution completed (logs unavailable due to rapid cleanup)."
-            
-        except Exception as e:
-            logger.error(f"Sandbox execution failed: {e}")
-            return f"Sandbox execution failed: {e}"
+            try:
+                result = await asyncio.to_thread(
+                    self.client.containers.run,
+                    image,
+                    cmd,
+                    detach=False, # Wait for it to finish
+                    mem_limit="128m",
+                    cpu_quota=50000,
+                    network_disabled=True,
+                    remove=True # Keep it clean
+                )
+                return result.decode("utf-8")
+            except docker.errors.ContainerError as e:
+                # Execution failed
+                return f"Error: Container exited with code {e.exit_status}.\n\nTraceback / Logs:\n{e.stderr.decode('utf-8')}"
+            except Exception as e:
+                return f"Error: Sandbox execution failed: {e}"
 
 sandbox_runner = DockerSandbox()

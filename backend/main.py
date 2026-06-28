@@ -85,9 +85,9 @@ logger = logging.getLogger("OptimusCore")
 # Persistent HMAC-SHA256 Security Gateway
 # ---------------------------------------------------------------------------
 _MASTER_PW_RAW: str = os.getenv("OPTIMUS_MASTER_PASSWORD", "")
-if not _MASTER_PW_RAW:
+if not _MASTER_PW_RAW or _MASTER_PW_RAW == "CHANGE_ME_IN_PRODUCTION":
     _MASTER_PW_RAW = secrets.token_urlsafe(32)
-    logger.warning(f"No master password in .env! Generated random one-time token: {_MASTER_PW_RAW}")
+    logger.warning("No secure master password in .env! Generated random one-time token (check console output manually if needed, not logged).")
 
 MASTER_PW_HASH: bytes = hashlib.sha256(_MASTER_PW_RAW.encode("utf-8")).digest()
 logger.info(
@@ -387,7 +387,7 @@ _SEMANTIC_PATTERNS: list[tuple[re.Pattern, str]] = [
 def get_semantic_route(text: str) -> Optional[str]:
     stripped = text.strip()
     for pattern, plugin_name in _SEMANTIC_PATTERNS:
-        if pattern.match(stripped):
+        if pattern.search(stripped):
             return plugin_name
     return None
 
@@ -518,14 +518,14 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
 
                 if isinstance(result, str) and (result.startswith("Error") or "STDERR:" in result):
                     logger.warning(f"Semantic route '{route}' failed. Falling back to LLM. Error: {result}")
-                else:
+                elif isinstance(result, str) and result.startswith("__APPROVAL_REQUIRED__:"):
                     await manager.send_state(websocket, "idle")
-
-                if isinstance(result, str) and result.startswith("__APPROVAL_REQUIRED__:"):
                     cmd_text = result[len("__APPROVAL_REQUIRED__:"):]
                     agent.request_approval(cmd_text)
                     await manager.safe_send_json(websocket, {"type": "approval_required", "command": cmd_text})
+                    semantic_success = True
                 else:
+                    await manager.send_state(websocket, "idle")
                     await manager.safe_send_json(websocket, {"type": "chat", "data": f"[LOCAL] {result}"})
                     semantic_success = True
             
@@ -533,9 +533,11 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
                 continue
 
             try:
+                from backend.core.orchestrator import AgentOrchestrator
+                orchestrator = AgentOrchestrator(agent)
                 async def text_generator():
-                    async for token_piece in agent.process_message_stream(
-                        user_msg, image_data=image_data, engine=engine, approved=approved
+                    async for token_piece in orchestrator.route_task_stream(
+                        user_msg, engine=engine, image_data=image_data, approved=approved
                     ):
                         if token_piece.startswith('{"type":'):
                             try:

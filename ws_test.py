@@ -7,7 +7,10 @@ async def test():
         print('Connecting...')
         async with websockets.connect('ws://127.0.0.1:8000/ws') as ws:
             print('CONNECTED')
-            await ws.send(json.dumps({'password': 'R136a1IC1101@'}))
+            auth_payload = {
+        "password": "CHANGE_ME_IN_PRODUCTION"
+    }        
+            await ws.send(json.dumps(auth_payload))
             for _ in range(3):
                 msg = await asyncio.wait_for(ws.recv(), timeout=3)
                 d = json.loads(msg)

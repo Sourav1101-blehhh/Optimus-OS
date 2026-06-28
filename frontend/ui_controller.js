@@ -44,10 +44,8 @@ class KineticTelemetryDisplay {
         const step = w / 49;
         
         // Exact text overlay for current telemetry
-        ctx.fillStyle = ctx.strokeStyle;
-        ctx.font = '12px monospace';
-        const dataKey = this.isRam ? 'RAM' : 'CPU';
-        ctx.fillText(`${dataKey}: ${this.targetValue.toFixed(1)}%`, 5, 15);
+        // The HTML DOM already draws the label so we only need to draw the line!
+
         
         for (let i = 0; i < 50; i++) {
             const val = this.history[i] || 0;
@@ -70,7 +68,6 @@ class KineticTelemetryDisplay {
         ctx.stroke();
         
         // Gradient body
-        ctx.beginPath();
         ctx.lineTo(w, h);
         ctx.lineTo(0, h);
         ctx.closePath();
@@ -223,12 +220,27 @@ export class UIController {
         if (window.marked) {
             marked.setOptions({ breaks: true, gfm: true });
             const parsed = marked.parse(lastBubble.dataset.rawText);
-            lastBubble.innerHTML = `<div class="md-content">${DOMPurify.sanitize(parsed)}<span class="typing-indicator"></span></div>`;
+            
+            const mdDiv = document.createElement('div');
+            mdDiv.className = 'md-content';
+            mdDiv.innerHTML = DOMPurify.sanitize(parsed);
+            
+            const indicator = document.createElement('span');
+            indicator.className = 'typing-indicator';
+            mdDiv.appendChild(indicator);
+            
+            lastBubble.innerHTML = '';
+            lastBubble.appendChild(mdDiv);
+            
             lastBubble.querySelectorAll('pre code').forEach((block) => {
                 if (window.hljs) hljs.highlightElement(block);
             });
         } else {
-            lastBubble.innerHTML = DOMPurify.sanitize(lastBubble.dataset.rawText.replace(/\n/g, '<br>')) + '<span class="typing-indicator"></span>';
+            const clean = DOMPurify.sanitize(lastBubble.dataset.rawText.replace(/\n/g, '<br>'));
+            lastBubble.innerHTML = clean;
+            const indicator = document.createElement('span');
+            indicator.className = 'typing-indicator';
+            lastBubble.appendChild(indicator);
         }
         
         this.scrollToBottom();

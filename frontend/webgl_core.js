@@ -3,6 +3,7 @@ export class WebGLCore {
         this.container = document.getElementById(containerId);
         this.canvas = document.getElementById(canvasId);
 
+        this.isInitialized = false;
         if (typeof THREE === 'undefined') {
             console.warn('[WebGLCore] THREE.js is not loaded. 3D rendering disabled.');
             return;
@@ -11,6 +12,7 @@ export class WebGLCore {
             console.warn('[WebGLCore] Container or Canvas not found. 3D rendering disabled.');
             return;
         }
+        this.isInitialized = true;
 
         // Scene Setup
         this.scene = new THREE.Scene();
@@ -61,8 +63,9 @@ export class WebGLCore {
         this.targetAmplitude = Math.min(tps / 30.0, 1.0);
     }
 
-    setTelemetry(amplitude) {
-        this.targetAmplitude = amplitude;
+    setTelemetry(amp) {
+        if (!this.isInitialized) return;
+        this.targetAmplitude = amp;
     }
 
     setupOrb() {
@@ -257,6 +260,7 @@ export class WebGLCore {
     }
 
     render(time) {
+        if (!this.isInitialized || !this.orb || !this.renderer) return;
         this.currentAmplitude += (this.targetAmplitude - this.currentAmplitude) * 0.1;
         
         // Lerp colors

@@ -34,23 +34,23 @@ async def execute(args: dict = None) -> str:
         
     action = args["action"].lower()
     
-    async with memory_lock:
-        db = await load_db()
-        
-        if action == "write":
-        key = args.get("key", "General Notes")
-        value = args.get("value")
-        if not value:
-            return "Error: No value to remember."
+    if action == "write":
+        async with memory_lock:
+            db = await load_db()
+            key = args.get("key", "General Notes")
+            value = args.get("value")
+            if not value:
+                return "Error: No value to remember."
             
-        if key not in db:
-            db[key] = []
-        db[key].append(value)
-        if len(db[key]) > 100:
-            db[key] = db[key][-100:]
-        await save_db(db)
-        return f"Successfully remembered under '{key}': {value}"
-        
+            if key not in db:
+                db[key] = []
+            db[key].append(value)
+            if len(db[key]) > 100:
+                db[key] = db[key][-100:]
+            
+            await save_db(db)
+            return f"Successfully saved to memory under '{key}'."
+            
     elif action == "read":
         async with memory_lock:
             db = await load_db()
@@ -79,8 +79,8 @@ async def execute(args: dict = None) -> str:
             if key and key in db:
                 del db[key]
                 await save_db(db)
-            return f"Cleared memories for '{key}'."
-        else:
-            return "Error: Provide a valid 'key' to clear."
+                return f"Cleared memories for '{key}'."
+            else:
+                return "Error: Provide a valid 'key' to clear."
             
     return f"Unknown action: {action}"

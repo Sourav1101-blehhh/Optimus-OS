@@ -13,7 +13,8 @@ user32 = ctypes.windll.user32
 SW_MINIMIZE = 6
 WM_CLOSE = 0x0010
 
-WNDENUMPROC = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_int, ctypes.POINTER(ctypes.c_int))
+import ctypes.wintypes
+WNDENUMPROC = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.wintypes.HWND, ctypes.POINTER(ctypes.c_int))
 
 def _get_window_text(hwnd):
     length = user32.GetWindowTextLengthW(hwnd)

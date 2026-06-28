@@ -79,4 +79,3 @@ async def execute(args: dict | None = None) -> str:
         return f"__APPROVAL_REQUIRED__:{command}"
 
     return await _run_command_async(command)
-c(command)

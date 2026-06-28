@@ -13,53 +13,82 @@ PLUGIN_METADATA = {
 }
 
 # ---------------------------------------------------------------------------
-# AST Static Analysis Gate
+# AST Static Analysis Gate (DRY RUN MODE)
 # ---------------------------------------------------------------------------
 import ast
+import logging
 
-_BLOCKED_MODULES   = {"os", "subprocess", "shutil", "socket", "ctypes", "sys"}
-_BLOCKED_BUILTINS  = {"exec", "eval", "compile", "__import__"}
+logger = logging.getLogger(__name__)
+
+# Strict allowlist of safe modules
+_ALLOWED_MODULES = {"math", "datetime", "json", "re", "random", "itertools", "collections", "time", "uuid", "hashlib"}
+_ALLOWED_BUILTINS = {"print", "len", "range", "int", "float", "str", "list", "dict", "set", "tuple", "bool", "sum", "min", "max", "abs", "round", "enumerate", "zip", "map", "filter", "any", "all", "type", "isinstance", "issubclass", "getattr", "hasattr", "open", "Exception", "ValueError", "TypeError", "KeyError", "IndexError", "sorted", "reversed"}
+_ALLOWED_NODES = {
+    ast.Module, ast.Expr, ast.Call, ast.Name, ast.Load, ast.Store, ast.Assign,
+    ast.Constant, ast.BinOp, ast.Add, ast.Sub, ast.Mult, ast.Div, ast.FloorDiv,
+    ast.Mod, ast.Pow, ast.UnaryOp, ast.UAdd, ast.USub, ast.Not, ast.Invert,
+    ast.BoolOp, ast.And, ast.Or, ast.Compare, ast.Eq, ast.NotEq, ast.Lt, ast.LtE,
+    ast.Gt, ast.GtE, ast.Is, ast.IsNot, ast.In, ast.NotIn, ast.If, ast.For,
+    ast.While, ast.Break, ast.Continue, ast.Pass, ast.FunctionDef, ast.Return,
+    ast.arguments, ast.arg, ast.Dict, ast.List, ast.Set, ast.Tuple, ast.Subscript,
+    ast.Index, ast.Slice, ast.ExtSlice, ast.ListComp, ast.SetComp, ast.DictComp,
+    ast.GeneratorExp, ast.comprehension, ast.keyword, ast.Attribute,
+    ast.Import, ast.ImportFrom, ast.alias, ast.ClassDef, ast.FormattedValue,
+    ast.JoinedStr, ast.Try, ast.ExceptHandler, ast.Raise, ast.Assert, ast.IfExp,
+    ast.Del, ast.With, ast.withitem, ast.Yield, ast.YieldFrom, ast.Global,
+    ast.Nonlocal, ast.Await, ast.AsyncFunctionDef, ast.AsyncFor, ast.AsyncWith
+}
 
 def _static_scan(code: str) -> list[str]:
-    """Returns list of violation strings, empty if clean."""
+    """Returns list of violation strings. In dry run mode, just logs them."""
     violations = []
     try:
         tree = ast.parse(code)
     except SyntaxError as e:
         violations.append(f"SyntaxError: {e}")
         return violations
+    
     for node in ast.walk(tree):
+        # 1. Check Node Type
+        if type(node) not in _ALLOWED_NODES:
+            violations.append(f"Blocked AST Node: {type(node).__name__}")
+            continue
+
+        # 2. Check Imports
         if isinstance(node, (ast.Import, ast.ImportFrom)):
-            names = [a.name.split(".")[0] for a in node.names]
-            for n in names:
-                if n in _BLOCKED_MODULES:
-                    violations.append(f"Blocked import: '{n}'")
+            if isinstance(node, ast.ImportFrom) and node.module:
+                module_name = node.module.split(".")[0]
+                if module_name not in _ALLOWED_MODULES:
+                    violations.append(f"Blocked import: '{module_name}'")
+            for alias in node.names:
+                name = alias.name.split(".")[0]
+                if name not in _ALLOWED_MODULES:
+                    violations.append(f"Blocked import: '{name}'")
+                    
+        # 3. Check Function Calls
         elif isinstance(node, ast.Call):
             func = node.func
-            name = (func.id if isinstance(func, ast.Name) else
-                    func.attr if isinstance(func, ast.Attribute) else None)
-            if name in _BLOCKED_BUILTINS:
-                violations.append(f"Blocked builtin: '{name}()'")
+            if isinstance(func, ast.Name):
+                if func.id not in _ALLOWED_BUILTINS and not func.id.startswith("_"):
+                    # We can't definitively know if it's a builtin or user-defined function just from AST without scope analysis,
+                    # but for a strict sandbox we could block unknown names. 
+                    # For dry run, we'll log it.
+                    violations.append(f"Potentially blocked call: '{func.id}()'")
+            elif isinstance(func, ast.Attribute):
+                if func.attr.startswith("__"):
+                    violations.append(f"Blocked dunder call: '{func.attr}()'")
+                    
+        # 4. Check Attribute Access (block __class__, __subclasses__, etc.)
+        elif isinstance(node, ast.Attribute):
+            if node.attr.startswith("__"):
+                violations.append(f"Blocked dunder attribute: '{node.attr}'")
+
+    if violations:
+        logger.warning(f"code_runner.py blocking execution due to: {', '.join(violations)}")
+        return violations
     return violations
 
-
-# ---------------------------------------------------------------------------
-# Human-in-the-loop gate
-# ---------------------------------------------------------------------------
-# Arbitrary code execution is a high-risk operation. Before running any
-# script the plugin checks for an "_approved" flag in args. If absent it
-# returns the __APPROVAL_REQUIRED__ sentinel so the frontend can present a
-# confirmation dialog (showing the code to be run) before re-submitting with
-# approved=True.
-#
-# Frontend integration (app.js):
-#   ws.onmessage receives {"type": "approval_required", "command": "<code>"}
-#   → render dialog: "Optimus wants to execute code. Approve?" with code preview.
-#   On Approve: re-send original THINK command with approved:true in payload.
-#   On Deny: dismiss, add denial log entry.
-# ---------------------------------------------------------------------------
-
-def execute(args: dict = None) -> str:
+async def execute(args: dict = None) -> str:
     if not args or "code" not in args:
         return "Error: No 'code' argument provided. Please supply the Python code to execute."
 
@@ -74,12 +103,19 @@ def execute(args: dict = None) -> str:
     if not approved:
         return f"__APPROVAL_REQUIRED__:{code}"
 
+    # Route to Docker if available
+    try:
+        from backend.plugins.docker_runner import sandbox_runner
+        if sandbox_runner.available:
+            return await sandbox_runner.execute_code(code)
+    except Exception as e:
+        logger.warning(f"Docker sandbox failed, falling back to AST: {e}")
+
     # ── Gate: Static AST Analysis ──────────────────────────────────────────
     violations = _static_scan(code)
     if violations:
         v_list = ", ".join(violations)
         return f"__UNSAFE_CODE__:Blocked by static analysis: {v_list}"
-
 
     import uuid
     workspace = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "scratch"))

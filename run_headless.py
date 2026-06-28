@@ -44,7 +44,7 @@ def start_backend():
     global backend_process
     if check_port(8000):
         print("Port 8000 in use.")
-        sys.exit(1)
+        os._exit(1)
     # Use pythonw or start detached so it doesn't open a console window
     # sys.executable points to the current venv python
     cmd = [sys.executable, "-m", "uvicorn", "backend.main:app", "--host", "127.0.0.1", "--port", "8000"]
@@ -53,11 +53,12 @@ def start_backend():
     if sys.platform == "win32":
         creationflags = subprocess.CREATE_NO_WINDOW
 
+    log_file = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "backend", "core.log"), "a")
     backend_process = subprocess.Popen(
         cmd,
         cwd=os.path.dirname(os.path.abspath(__file__)),
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
+        stdout=log_file,
+        stderr=log_file,
         creationflags=creationflags
     )
 
@@ -65,7 +66,7 @@ def start_frontend():
     global frontend_process
     if check_port(8080):
         print("Port 8080 in use.")
-        sys.exit(1)
+        os._exit(1)
     cmd = [sys.executable, "-m", "http.server", "8080", "-d", "frontend"]
     
     creationflags = 0
@@ -105,10 +106,12 @@ def monitor_processes(icon):
         time.sleep(2)
         if backend_process and backend_process.poll() is not None:
             icon.notify("Optimus Core crashed!")
-            break
+            time.sleep(1)
+            os._exit(1)
         if frontend_process and frontend_process.poll() is not None:
             icon.notify("Optimus UI crashed!")
-            break
+            time.sleep(1)
+            os._exit(1)
 
 def main():
     # Start the FastAPI server in a background process

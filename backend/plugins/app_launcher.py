@@ -55,9 +55,10 @@ def execute(args: dict = None) -> str:
         
     app_name = app_name.lower().strip()
     
-    # Look up in the map first
-    executable = APP_MAP.get(app_name, app_name)
-    
+    # Enforce strict validation against APP_MAP
+    executable = APP_MAP.get(app_name)
+    if not executable:
+        return f"Error: Application '{app_name}' is not in the allowed launch list."
     try:
         # os.startfile inherits headless state from Uvicorn, which hides UWP apps like Spotify.
         # Passing it to 'explorer' forces it to spawn in the active desktop UI session.

@@ -29,6 +29,10 @@
     box-sizing: border-box;
 }
 
+button, .mbtn, .sh-item, .action-row, .mem-box, .glass-panel {
+    user-select: none;
+}
+
 body {
     background-color: var(--bg-matte);
     color: #e2e8f0;
@@ -37,7 +41,7 @@ body {
     width: 100vw;
     overflow-x: hidden;
     overflow-y: auto;
-    user-select: none;
+    /* user-select removed to allow text selection */
     position: relative;
     
     /* Premium Deep Radial Gradient Background */

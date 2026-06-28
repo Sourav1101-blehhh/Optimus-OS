@@ -767,6 +767,7 @@ If you do not need to use a tool, just respond with normal text. Keep responses 
         max_depth:     int = _MAX_TOOL_DEPTH,
         current_depth: int = 0,
         approved:      bool = False,
+        internal:      bool = False,
     ) -> AsyncIterator[str]:
         """
         Primary async generator that orchestrates LLM inference and recursive
@@ -809,13 +810,13 @@ If you do not need to use a tool, just respond with normal text. Keep responses 
             engine = engine.upper()
             self._last_engine = engine
 
-            if current_depth == 0:
+            if current_depth == 0 and not internal:
                 await self._append_history("user", message, image_data)
 
             system_prompt = await self._build_system_prompt(message)
 
             # ── Dual-tier cache check (depth 0 only) ─────────────────────────
-            if current_depth == 0:
+            if current_depth == 0 and not internal:
                 cached = await self._cache_lookup(message)
                 if cached:
                     logger.info("Semantic cache HIT — zero-credit local yield.")
@@ -824,7 +825,7 @@ If you do not need to use a tool, just respond with normal text. Keep responses 
                     return
 
             # ── Episodic Memory Retrieval (RAG) ──────────────────────────────
-            if current_depth == 0 and self._memory_col:
+            if current_depth == 0 and self._memory_col and not internal:
                 try:
                     results = await asyncio.to_thread(
                         self._memory_col.query,
@@ -1000,30 +1001,32 @@ If you do not need to use a tool, just respond with normal text. Keep responses 
                     logger.error(f"Tool call parse/exec error: {exc}")
 
             # ── Persist response and cache (depth 0 only) ────────────────────
-            await self._append_history("model", full_response)
-            if (
-                current_depth == 0
-                and full_response
-                and not full_response.startswith("Error:")
-            ):
-                self._cache_write(message, full_response)
+            if not internal:
+                await self._append_history("model", full_response)
                 
-                # Async Memory Commit to ChromaDB
-                if self._memory_col:
-                    try:
-                        mem_id = hashlib.sha256(f"{message}{full_response}".encode('utf-8')).hexdigest()
-                        doc_text = f"User: {message}\nOptimus: {full_response}"
-                        
-                        # Fire and forget async commit to thread pool
-                        asyncio.create_task(
-                            asyncio.to_thread(
-                                self._memory_col.upsert,
-                                documents=[doc_text],
-                                ids=[mem_id]
+                if (
+                    current_depth == 0
+                    and full_response
+                    and not full_response.startswith("Error:")
+                ):
+                    self._cache_write(message, full_response)
+                    
+                    # Async Memory Commit to ChromaDB
+                    if self._memory_col:
+                        try:
+                            mem_id = hashlib.sha256(f"{message}{full_response}".encode('utf-8')).hexdigest()
+                            doc_text = f"User: {message}\nOptimus: {full_response}"
+                            
+                            # Fire and forget async commit to thread pool
+                            asyncio.create_task(
+                                asyncio.to_thread(
+                                    self._memory_col.upsert,
+                                    documents=[doc_text],
+                                    ids=[mem_id]
+                                )
                             )
-                        )
-                    except Exception as e:
-                        logger.warning(f"Failed to commit memory to ChromaDB: {e}")
+                        except Exception as e:
+                            logger.warning(f"Failed to commit memory to ChromaDB: {e}")
 
         finally:
             # Always purge base64 assets from history after inference completes

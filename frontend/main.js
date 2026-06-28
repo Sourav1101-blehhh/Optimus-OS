@@ -16,6 +16,47 @@ function promptForToken() {
     if (overlay) overlay.classList.remove('hidden');
 }
 
+// Global functions for inline HTML handlers
+window.sendCommand = (text) => {
+    if (!ui || !network) return;
+    ui.appendChat(text, 'user');
+    const engineSelect = document.getElementById('engine-select');
+    const engine = engineSelect ? engineSelect.value : "GEMINI";
+    network.sendThought(text, engine, null, false);
+};
+
+window.sendFeedback = (rating, element) => {
+    if (!network || !network.ws || network.ws.readyState !== WebSocket.OPEN) {
+        if (ui) ui.showToast("Network offline. Feedback not recorded.", "error");
+        return;
+    }
+    const bubble = element.closest('.chat-bubble');
+    if (!bubble) return;
+    const text = bubble.dataset.rawText || bubble.innerText;
+    network.ws.send(JSON.stringify({
+        command: "THINK_FEEDBACK",
+        text: text,
+        rating: rating
+    }));
+    if (ui) ui.showToast(`Feedback recorded: ${rating > 0 ? 'Positive' : 'Negative'}`);
+    const buttons = bubble.querySelectorAll('.feedback-btn');
+    buttons.forEach(b => b.style.display = 'none');
+};
+
+window.toggleDevice = (element, text) => {
+    element.classList.toggle('active');
+    window.sendCommand(text);
+};
+
+window.toggleCommHUD = () => {
+    const hud = document.getElementById('comm-hud');
+    if (hud) {
+        hud.classList.toggle('collapsed');
+        const arrow = document.getElementById('toggle-arrow');
+        if (arrow) arrow.innerText = hud.classList.contains('collapsed') ? '◀' : '▶';
+    }
+};
+
 window.exportConversation = function(e) {
     if (e) e.stopPropagation();
     const chatBox = document.getElementById('chat-history');
@@ -68,18 +109,24 @@ function initOptimus(token) {
             if (overlay) overlay.classList.add('hidden');
         } else {
             // If it's a specific auth failure, show the overlay again with an error
-            if (e.detail.includes("Auth failed") || e.detail.includes("Unauthorized")) {
-                document.getElementById('login-overlay').classList.remove('hidden');
-                document.getElementById('login-error').innerText = "AUTH REJECTED. TRY AGAIN.";
-                document.getElementById('login-password').value = "";
-            } else if (e.detail === 'Disconnected') {
-                document.getElementById('login-error').innerText = "BACKEND OFFLINE. RETRYING...";
+            const detailStr = String(e.detail || "");
+            if (detailStr.includes("Auth failed") || detailStr.includes("Unauthorized")) {
+                const overlay = document.getElementById('login-overlay');
+                const error = document.getElementById('login-error');
+                const pwd = document.getElementById('login-password');
+                if (overlay) overlay.classList.remove('hidden');
+                if (error) error.innerText = "AUTH REJECTED. TRY AGAIN.";
+                if (pwd) pwd.value = "";
+            } else if (detailStr === 'Disconnected') {
+                const error = document.getElementById('login-error');
+                if (error) error.innerText = "BACKEND OFFLINE. RETRYING...";
             }
         }
     });
     
     network.addEventListener('state', (e) => {
         ui.setStatus(`System: ${e.detail}`);
+        if (webgl) webgl.setAIState(String(e.detail).toUpperCase());
     });
 
     network.addEventListener('telemetry', (e) => {
@@ -93,6 +140,34 @@ function initOptimus(token) {
     network.addEventListener('chat', (e) => {
         ui.appendChat(e.detail, 'model');
         speech.speak(e.detail);
+    });
+
+    network.addEventListener('vision_intercept', (e) => {
+        const data = e.detail;
+        const overlay = document.getElementById('vision-overlay');
+        const box = document.getElementById('vision-box');
+        
+        if (overlay && box) {
+            // Draw box
+            box.style.left = data.x + 'px';
+            box.style.top = data.y + 'px';
+            box.style.width = data.w + 'px';
+            box.style.height = data.h + 'px';
+            
+            // Show overlay
+            overlay.classList.remove('hidden');
+            
+            // Handlers
+            document.getElementById('vision-allow-btn').onclick = () => {
+                overlay.classList.add('hidden');
+                network.ws.send(JSON.stringify({ command: 'APPROVE', token: `VISION_${data.x}_${data.y}` }));
+            };
+            
+            document.getElementById('vision-deny-btn').onclick = () => {
+                overlay.classList.add('hidden');
+                network.ws.send(JSON.stringify({ command: 'DENY', token: `VISION_${data.x}_${data.y}` }));
+            };
+        }
     });
 
     network.addEventListener('token', (e) => {
@@ -127,50 +202,6 @@ function initOptimus(token) {
         );
     });
 
-    // Global functions for inline HTML handlers
-    window.sendCommand = (text) => {
-        ui.appendChat(text, 'user');
-        const engineSelect = document.getElementById('engine-select');
-        const engine = engineSelect ? engineSelect.value : "GEMINI";
-        network.sendThought(text, engine, null, false);
-    };
-
-    window.sendFeedback = (rating, element) => {
-        if (!network || !network.ws || network.ws.readyState !== WebSocket.OPEN) {
-            ui.showToast("Network offline. Feedback not recorded.", "error");
-            return;
-        }
-
-        const bubble = element.closest('.chat-bubble');
-        if (!bubble) return;
-        const text = bubble.dataset.rawText || bubble.innerText;
-        
-        network.ws.send(JSON.stringify({
-            command: "THINK_FEEDBACK",
-            text: text,
-            rating: rating
-        }));
-        
-        ui.showToast(`Feedback recorded: ${rating > 0 ? 'Positive' : 'Negative'}`);
-        
-        // Disable buttons after click
-        const buttons = bubble.querySelectorAll('.feedback-btn');
-        buttons.forEach(b => b.style.display = 'none');
-    };
-
-    window.toggleDevice = (element, text) => {
-        element.classList.toggle('active');
-        window.sendCommand(text);
-    };
-
-    window.toggleCommHUD = () => {
-        const hud = document.getElementById('comm-hud');
-        if (hud) {
-            hud.classList.toggle('collapsed');
-            const arrow = document.getElementById('toggle-arrow');
-            if (arrow) arrow.innerText = hud.classList.contains('collapsed') ? '◀' : '▶';
-        }
-    };
 
     // UI Input Binding
     const chatForm = document.getElementById('chat-form');

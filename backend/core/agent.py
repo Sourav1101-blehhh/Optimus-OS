@@ -230,11 +230,13 @@ class OptimusAgent:
     # ------------------------------------------------------------------
     # Conversation History & Dynamic Context Pruning
     # ------------------------------------------------------------------
-    async def _append_history(self, role: str, content: str, image_url: Optional[str] = None) -> None:
+    async def _append_history(self, role: str, content: str, image_url: Optional[str] = None, metadata: Optional[str] = None) -> None:
         async with self._history_lock:
             msg = {"role": role, "content": content}
             if image_url:
                 msg["image_url"] = image_url
+            if metadata:
+                msg["metadata"] = metadata
             self._history_matrix.append(msg)
             
             # Start a background task for summarization ONLY if it exceeds 20 items and isn't currently pruning
@@ -964,18 +966,20 @@ If you do not need to use a tool, just respond with normal text. Keep responses 
                             t_args.pop("_approved", None)
                             t_args["_approved"] = approved
                         res = await self.execute_plugin_async(t_name, t_args)
-                        return t_name, res
+                        return call, res
 
                     if not tool_calls:
                         return
 
                     results = await asyncio.gather(*[run_tool(c) for c in tool_calls])
 
-                    for t_name, result in results:
+                    for call, result in results:
+                        t_name = call.get("tool")
                         if isinstance(result, str) and result.startswith("__APPROVAL_REQUIRED__:"):
+                            call_json = json.dumps(call)
+                            self.request_approval(call_json)
                             cmd_text = result[len("__APPROVAL_REQUIRED__:"):]
-                            self.request_approval(cmd_text)
-                            yield json.dumps({"type": "approval_required", "command": cmd_text})
+                            yield json.dumps({"type": "approval_required", "command": cmd_text, "payload": call_json})
                             follow_msg = f"SYSTEM: Execution paused. Waiting for user approval to run '{cmd_text}'."
                             await self._append_history("user", follow_msg)
                         elif isinstance(result, str) and result.startswith("SCREENSHOT_BASE64:"):
@@ -985,13 +989,54 @@ If you do not need to use a tool, just respond with normal text. Keep responses 
                             await self._append_history("user", follow_msg, img_url)
                         else:
                             if isinstance(result, str) and ("Error:" in result or "Exception:" in result):
+                                # Traceback Compression
+                                lines = result.splitlines()
+                                if len(lines) > 8:
+                                    compressed_result = "\n".join(lines[:2] + ["...[TRUNCATED TRACEBACK]..."] + lines[-4:])
+                                else:
+                                    compressed_result = result
+                                    
                                 follow_msg = (
-                                    f"SYSTEM [URGENT]: Tool '{t_name}' FAILED with error:\n{result}\n"
+                                    f"SYSTEM [URGENT]: Tool '{t_name}' FAILED with error:\n{compressed_result}\n"
                                     f"Please analyze this error and immediately formulate a corrected tool call to recover."
                                 )
+                                await self._append_history("user", follow_msg, metadata="healing_telemetry")
                             else:
-                                follow_msg = f"SYSTEM: Tool '{t_name}' returned:\n{result}"
-                            await self._append_history("user", follow_msg)
+                                follow_msg = (
+                                    f"SYSTEM: Tool '{t_name}' returned:\n{result}\n\n"
+                                    f"IMPORTANT: If this fully completes the user's request, provide your final text response to the user and DO NOT output another tool call. Only output a tool call if further actions are strictly required."
+                                )
+                                await self._append_history("user", follow_msg)
+
+                    # Sliding-Window Traceback Eviction
+                    if current_depth > 1:
+                        async with self._history_lock:
+                            # Prune the previous failed tool call block and healing telemetry to prevent context bloat
+                            pruned_history = []
+                            skip_next = False
+                            # Walk backwards to find the LAST healing telemetry
+                            # Actually it's easier to rebuild the list excluding the last telemetry and the preceding model msg
+                            last_telemetry_idx = -1
+                            for i in range(len(self._history_matrix)-1, -1, -1):
+                                if self._history_matrix[i].get("metadata") == "healing_telemetry":
+                                    last_telemetry_idx = i
+                                    # Wait, the current one was just added. We want the PREVIOUS one.
+                                    # But wait, there might be multiple tools. Let's just remove the ones before the current block.
+                                    pass
+                            
+                            # Let's do a simpler targeted removal: find all 'healing_telemetry' and if there are more than 1,
+                            # remove the older ones and their preceding assistant messages.
+                            telemetry_indices = [i for i, msg in enumerate(self._history_matrix) if msg.get("metadata") == "healing_telemetry"]
+                            if len(telemetry_indices) > 1:
+                                to_delete = set()
+                                # Keep the last one, delete all previous ones
+                                for idx in telemetry_indices[:-1]:
+                                    to_delete.add(idx)
+                                    # Also delete the assistant message right before it, if it exists and is assistant
+                                    if idx > 0 and self._history_matrix[idx-1]["role"] == "assistant":
+                                        to_delete.add(idx-1)
+                                
+                                self._history_matrix = [msg for i, msg in enumerate(self._history_matrix) if i not in to_delete]
 
                     # Recurse with incremented depth counter
                     async for tok in self.process_message_stream(

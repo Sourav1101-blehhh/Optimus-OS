@@ -25,24 +25,24 @@ async def _run_command_async(command: str) -> str:
 
     try:
         # Run using powershell to support builtins like echo and $env variables
-        proc = await asyncio.create_subprocess_exec(
-            "powershell", "-NoProfile", "-NonInteractive", "-Command", command,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
-    except Exception as e:
-        return f"Error executing command: {e}"
-
-    try:
-        stdout, stderr = await asyncio.wait_for(
-            proc.communicate(), timeout=_TIMEOUT_SECONDS
-        )
+        from backend.core.security import hardware_lock
+        async with hardware_lock:
+            proc = await asyncio.create_subprocess_exec(
+                "powershell", "-NoProfile", "-NonInteractive", "-Command", command,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            stdout, stderr = await asyncio.wait_for(
+                proc.communicate(), timeout=_TIMEOUT_SECONDS
+            )
     except asyncio.TimeoutError:
         try:
             proc.kill()
         except ProcessLookupError:
             pass
         return f"Error: Command timed out after {_TIMEOUT_SECONDS}s."
+    except Exception as e:
+        return f"Error executing command: {e}"
 
     out = stdout.decode("utf-8", errors="replace").strip()
     err = stderr.decode("utf-8", errors="replace").strip()

@@ -81,10 +81,14 @@ def start_frontend():
         creationflags=creationflags
     )
 
+# Generate a secure boot token for WebSocket authentication
+import secrets
+os.environ["OPTIMUS_BOOT_TOKEN"] = secrets.token_urlsafe(32)
+
 def open_dashboard(icon, item):
     import webbrowser
-    # Assuming frontend is served via an extension like Live Server, or Nginx on 8080
-    webbrowser.open("http://127.0.0.1:8080")
+    token = os.environ["OPTIMUS_BOOT_TOKEN"]
+    webbrowser.open(f"http://127.0.0.1:8080/?token={token}")
 
 def view_logs(icon, item):
     # Just opens the backend folder for now, or a specific log file

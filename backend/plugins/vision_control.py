@@ -83,21 +83,22 @@ async def execute(args: dict = None) -> str:
             return f"__APPROVAL_REQUIRED__:vision_control:{json.dumps(args)}"
             
         # 4. Execute Action
-        if action == "click":
-            await asyncio.to_thread(pyautogui.click, x, y)
-        elif action == "type":
-            await asyncio.to_thread(pyautogui.click, x, y)
-            await asyncio.sleep(0.2)
-            await asyncio.to_thread(pyautogui.write, cmd.get("text", ""), interval=0.04)
-        elif action == "drag":
-            tx, ty = cmd.get("target_x"), cmd.get("target_y")
-            if tx and ty:
-                await asyncio.to_thread(pyautogui.moveTo, x, y)
-                await asyncio.to_thread(pyautogui.dragTo, tx, ty, duration=0.5)
-            else:
-                return "Drag action requires target_x and target_y."
+        from backend.core.security import hardware_lock
         
-        return f"Successfully executed '{action}' at ({x}, {y})."
+        async with hardware_lock:
+            if action == "click":
+                await asyncio.to_thread(pyautogui.click, x, y)
+            elif action == "type":
+                await asyncio.to_thread(pyautogui.click, x, y)
+                await asyncio.sleep(0.2)
+                await asyncio.to_thread(pyautogui.write, cmd.get("text", ""), interval=0.04)
+            elif action == "drag":
+                tx = cmd.get("target_x", x)
+                ty = cmd.get("target_y", y)
+                await asyncio.to_thread(pyautogui.moveTo, x, y)
+                await asyncio.to_thread(pyautogui.dragTo, tx, ty, 0.5, button='left')
+                
+        return f"Vision executed {action} at ({x}, {y})"
         
     except Exception as e:
         logger.error(f"Visual execution failed: {e}")

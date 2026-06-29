@@ -61,8 +61,9 @@ def execute(args: dict = None) -> str:
         vk_code = VK_CODES[mapped_action]
         
         def press_key(code):
-            ctypes.windll.user32.keybd_event(code, 0, 0, 0)
-            ctypes.windll.user32.keybd_event(code, 0, 2, 0)
+            scan_code = ctypes.windll.user32.MapVirtualKeyA(code, 0)
+            ctypes.windll.user32.keybd_event(code, scan_code, 0, 0) # Key Down
+            ctypes.windll.user32.keybd_event(code, scan_code, 2, 0) # Key Up
             
         if mapped_action == "volumeup":
             for _ in range(5): press_key(vk_code)

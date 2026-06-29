@@ -95,8 +95,23 @@ function initOptimus(token) {
     webgl = new WebGLCore('container', 'cognitive-canvas');
     speech = new SpeechManager();
     
+    // Extract boot token from URL or localStorage
+    const urlParams = new URLSearchParams(window.location.search);
+    let bootToken = urlParams.get('token') || localStorage.getItem('optimus_boot_token');
+    
+    if (bootToken) {
+        localStorage.setItem('optimus_boot_token', bootToken);
+        // Clean up URL visually
+        if (urlParams.has('token')) {
+            window.history.replaceState({}, document.title, window.location.pathname);
+        }
+    }
+
     // Connect to WebSocket via NetworkManager
-    const wsUrl = `ws://${window.location.hostname || '127.0.0.1'}:8000/ws`;
+    let wsUrl = `ws://${window.location.hostname || '127.0.0.1'}:8000/ws`;
+    if (bootToken) {
+        wsUrl += `?token=${bootToken}`;
+    }
     network = new NetworkManager(wsUrl);
     network.connect(token);
 
@@ -182,11 +197,14 @@ function initOptimus(token) {
     });
 
     network.addEventListener('approval', (e) => {
-        const command = e.detail;
-        ui.showApprovalDialog(command, 
+        const data = e.detail;
+        const displayCommand = data.command;
+        const payloadStr = data.payload || data.command;
+        
+        ui.showApprovalDialog(displayCommand, 
             () => { // On Approve
-                ui.appendChat(`> User approved execution: ${command}`, 'user');
-                network.sendThought(command, "LOCAL", null, true);
+                ui.appendChat(`> User approved execution: ${displayCommand}`, 'user');
+                network.sendThought(payloadStr, "LOCAL", null, true);
             },
             () => { // On Deny
                 ui.appendChat("> User denied execution.", 'user');

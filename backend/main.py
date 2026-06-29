@@ -398,8 +398,19 @@ def get_semantic_route(text: str) -> Optional[str]:
 # ---------------------------------------------------------------------------
 # Unified WebSocket Gateway — /ws
 # ---------------------------------------------------------------------------
+from fastapi import Query
+from backend.core.security import validate_boot_token
+
 @app.websocket("/ws")
-async def websocket_endpoint(websocket: WebSocket) -> None:
+async def websocket_endpoint(websocket: WebSocket, token: str = Query(None)) -> None:
+    if not validate_boot_token(token):
+        logger.warning("Rejecting WebSocket: Invalid or missing boot token.")
+        try:
+            await websocket.close(code=1008, reason="Unauthorized")
+        except RuntimeError:
+            pass
+        return
+
     if len(manager.active_connections) >= 5:
         logger.warning("Max WebSocket connections reached. Rejecting new connection before handshake.")
         try:
@@ -502,9 +513,30 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
             
             # Determine approval from server state
             approved = agent.check_and_consume_approval(user_msg)
-
+            
             if not user_msg:
                 continue
+
+            if approved:
+                try:
+                    tool_call = json.loads(user_msg)
+                    if "tool" in tool_call:
+                        t_name = tool_call["tool"]
+                        t_args = tool_call.get("args", {})
+                        t_args["_approved"] = True
+                        res = await agent.execute_plugin_async(t_name, t_args)
+                        
+                        await manager.send_state(websocket, "idle")
+                        if isinstance(res, str) and res.startswith("SCREENSHOT_BASE64:"):
+                            img_b64 = res[len("SCREENSHOT_BASE64:"):]
+                            await manager.safe_send_json(websocket, {"type": "chat", "data": f"[EXECUTED] Screenshot captured."})
+                            await agent._append_history("user", "SYSTEM: Screenshot captured. Describe what you see.", f"data:image/png;base64,{img_b64}")
+                        else:
+                            await manager.safe_send_json(websocket, {"type": "chat", "data": f"[EXECUTED]\n{res}"})
+                            await agent._append_history("user", f"SYSTEM: User approved '{t_name}'. Result:\n{res}")
+                        continue
+                except Exception as e:
+                    logger.error(f"Failed direct execution of approved tool: {e}")
 
             await manager.send_state(websocket, "thinking")
 

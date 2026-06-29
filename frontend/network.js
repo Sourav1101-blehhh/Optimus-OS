@@ -160,7 +160,7 @@ export class NetworkManager extends EventTarget {
                         this.dispatchEvent(new CustomEvent('state', { detail: data.data }));
                         break;
                     case 'approval_required':
-                        this.dispatchEvent(new CustomEvent('approval', { detail: data.command }));
+                        this.dispatchEvent(new CustomEvent('approval', { detail: data }));
                         break;
                     case 'stream_end':
                         this.dispatchEvent(new CustomEvent('stream_end'));

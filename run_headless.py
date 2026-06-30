@@ -155,6 +155,14 @@ def main():
     # Process death monitoring
     threading.Thread(target=monitor_processes, args=(icon,), daemon=True).start()
     
+    secure_url = f"http://127.0.0.1:8000/?token={os.environ['OPTIMUS_BOOT_TOKEN']}"
+    print("\n" + "="*60)
+    print(" OPTIMUS CORE IS ONLINE")
+    print("="*60)
+    print(f" Access your dashboard securely here:")
+    print(f" -> {secure_url}")
+    print("="*60 + "\n")
+    
     icon.run()
 
 if __name__ == "__main__":

@@ -131,9 +131,11 @@ model/
 ```bash
 python run_headless.py
 ```
-Open your browser at `http://127.0.0.1:8080`.
+After starting the server, look at your terminal output for the secure dashboard URL. Because Optimus uses a Zero-Trust architecture, a randomized cryptographic token is required to access the dashboard. 
 
-Open your browser and navigate to `http://localhost:8000`.
+You can access it in two ways:
+1. Click the **Optimus icon** in your Windows System Tray and select **Open Dashboard**.
+2. **CTRL+Click** the secure URL printed directly in your terminal (e.g., `http://127.0.0.1:8000/?token=...`).
 
 ---
 

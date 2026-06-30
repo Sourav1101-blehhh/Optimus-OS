@@ -62,4 +62,10 @@ async def execute(args: dict = None) -> str:
     if not results:
         return f"No results found for query: '{query}'"
         
-    return "Top Search Results:\n\n" + "\n\n".join(results)
+    final_output = "Top Search Results:\n\n" + "\n\n".join(results)
+    
+    # If all returned results are errors, inject a strong anti-loop directive
+    if all("[DDG Error]" in r or "[Wikipedia Error]" in r for r in results):
+        final_output += "\n\nCRITICAL DIRECTIVE: The search engines are currently ratelimiting or blocking requests. DO NOT retry the search with a different query. Apologize to the user and explain that live search is temporarily unavailable."
+        
+    return final_output

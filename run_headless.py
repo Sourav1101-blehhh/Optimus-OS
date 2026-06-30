@@ -21,7 +21,6 @@ except ImportError:
 
 # Global reference to the backend process
 backend_process = None
-frontend_process = None
 
 def create_image():
     """Generates a simple neon blue O (Optimus) icon for the system tray."""
@@ -62,24 +61,7 @@ def start_backend():
         creationflags=creationflags
     )
 
-def start_frontend():
-    global frontend_process
-    if check_port(8080):
-        print("Port 8080 in use.")
-        os._exit(1)
-    cmd = [sys.executable, "-m", "http.server", "8080", "-d", "frontend"]
-    
-    creationflags = 0
-    if sys.platform == "win32":
-        creationflags = subprocess.CREATE_NO_WINDOW
 
-    frontend_process = subprocess.Popen(
-        cmd,
-        cwd=os.path.dirname(os.path.abspath(__file__)),
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-        creationflags=creationflags
-    )
 
 # Generate a secure boot token for WebSocket authentication
 import secrets
@@ -88,20 +70,17 @@ os.environ["OPTIMUS_BOOT_TOKEN"] = secrets.token_urlsafe(32)
 def open_dashboard(icon, item):
     import webbrowser
     token = os.environ["OPTIMUS_BOOT_TOKEN"]
-    webbrowser.open(f"http://127.0.0.1:8080/?token={token}")
+    webbrowser.open(f"http://127.0.0.1:8000/?token={token}")
 
 def view_logs(icon, item):
     # Just opens the backend folder for now, or a specific log file
     os.startfile(os.path.join(os.path.dirname(os.path.abspath(__file__)), "backend"))
 
 def terminate_core(icon, item):
-    global backend_process, frontend_process
+    global backend_process
     if backend_process:
         backend_process.terminate()
         backend_process.wait()
-    if frontend_process:
-        frontend_process.terminate()
-        frontend_process.wait()
     icon.stop()
     sys.exit(0)
 
@@ -110,10 +89,6 @@ def monitor_processes(icon):
         time.sleep(2)
         if backend_process and backend_process.poll() is not None:
             icon.notify("Optimus Core crashed!")
-            time.sleep(1)
-            os._exit(1)
-        if frontend_process and frontend_process.poll() is not None:
-            icon.notify("Optimus UI crashed!")
             time.sleep(1)
             os._exit(1)
 
@@ -132,13 +107,14 @@ def start_ngrok():
         password = ''.join(secrets.choice(alphabet) for i in range(12))
         ngrok_auth = f"optimus:{password}"
         
-        # Start tunnel to frontend port 8080
-        tunnel = ngrok.connect(8080, "http", auth=ngrok_auth)
+        # Start tunnel to frontend port 8000
+        tunnel = ngrok.connect(8000, "http", auth=ngrok_auth)
         ngrok_url = tunnel.public_url
         
         # Write to desktop for user convenience
+        full_url = f"{ngrok_url}/?token={os.environ['OPTIMUS_BOOT_TOKEN']}"
         with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "remote_access.txt"), "w") as f:
-            f.write(f"Optimus Remote Access\nURL: {ngrok_url}\nUsername: optimus\nPassword: {password}\n")
+            f.write(f"Optimus Remote Access\nURL: {full_url}\nUsername: optimus\nPassword: {password}\n")
             
     except Exception as e:
         print(f"Ngrok failed to start: {e}")
@@ -146,7 +122,8 @@ def start_ngrok():
 def show_remote_access(icon, item):
     import ctypes
     if ngrok_url:
-        msg = f"URL: {ngrok_url}\nAuth: {ngrok_auth}"
+        full_url = f"{ngrok_url}/?token={os.environ['OPTIMUS_BOOT_TOKEN']}"
+        msg = f"URL: {full_url}\nAuth: {ngrok_auth}"
         ctypes.windll.user32.MessageBoxW(0, msg, "Optimus Remote Access", 0x40)
     else:
         ctypes.windll.user32.MessageBoxW(0, "Ngrok tunnel is not active.", "Optimus Remote Access", 0x10)
@@ -156,9 +133,7 @@ def main():
     t1 = threading.Thread(target=start_backend, daemon=True)
     t1.start()
     
-    # Start the Frontend static server
-    t2 = threading.Thread(target=start_frontend, daemon=True)
-    t2.start()
+
     
     # Start Ngrok Remote Tunnel
     t3 = threading.Thread(target=start_ngrok, daemon=True)

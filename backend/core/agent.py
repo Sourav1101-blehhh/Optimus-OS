@@ -860,6 +860,9 @@ If you do not need to use a tool, just respond with normal text. Keep responses 
             # ── Engine selection ─────────────────────────────────────────────
             stream = None
             chat_history = await self.get_chat_history()
+            if internal:
+                chat_history.append({"role": "user", "content": message})
+                
             if engine in ("GPT", "OPENAI"):
                 stream = self._gpt_stream(system_prompt, chat_history)
             elif engine == "DEEPSEEK":

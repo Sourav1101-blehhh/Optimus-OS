@@ -354,9 +354,6 @@ async def hardware_telemetry_loop() -> None:
 def health_check():
     return {"status": "ok", "version": "5.1", "plugins": len(plugin_manager.plugins)}
 
-@app.get("/")
-def read_root():
-    return {"message": "Optimus Core v5.1 is online."}
 
 @app.get("/plugins")
 def get_plugins():
@@ -595,3 +592,10 @@ async def websocket_endpoint(websocket: WebSocket, token: str = Query(None)) -> 
 
     except WebSocketDisconnect:
         manager.disconnect(websocket)
+
+# Unify architecture: Serve the static frontend from the FastAPI backend root.
+from fastapi.staticfiles import StaticFiles
+import os
+
+frontend_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "frontend")
+app.mount("/", StaticFiles(directory=frontend_dir, html=True), name="frontend")

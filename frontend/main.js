@@ -105,10 +105,14 @@ function initOptimus(token) {
         if (urlParams.has('token')) {
             window.history.replaceState({}, document.title, window.location.pathname);
         }
+    } else {
+        document.getElementById('login-error').innerText = "FATAL: Boot token missing! Please launch Optimus from the System Tray.";
+        return;
     }
 
     // Connect to WebSocket via NetworkManager
-    let wsUrl = `ws://${window.location.hostname || '127.0.0.1'}:8000/ws`;
+    let protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    let wsUrl = `${protocol}//${window.location.host}/ws`;
     if (bootToken) {
         wsUrl += `?token=${bootToken}`;
     }

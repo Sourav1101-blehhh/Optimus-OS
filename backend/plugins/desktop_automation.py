@@ -48,41 +48,43 @@ async def execute(args: dict = None) -> str:
     logs = [f"Deploying system automation routine for application: '{app_name}'"]
 
     try:
-        for idx, op in enumerate(operations):
-            if not isinstance(op, dict):
-                logs.append(f"Step {idx+1}: Skipping invalid non-dict operation: {op}")
-                continue
-
-            action = op.get("action", "").lower().strip()
-            logs.append(f"Step {idx+1}: {action} -> {op}")
-
-            if action == "launch":
-                cmd = op.get("command") or app_name
-                # Spawn subprocess asynchronously without blocking
-                await asyncio.create_subprocess_exec(
-                    "cmd", "/c", "start", "", cmd,
-                    stdout=asyncio.subprocess.DEVNULL,
-                    stderr=asyncio.subprocess.DEVNULL
-                )
-                await asyncio.sleep(2.0)
-            elif action == "type":
-                text = op.get("text", "")
-                await asyncio.to_thread(pyautogui.write, text, interval=0.04)
-            elif action == "press":
-                key = op.get("key", "")
-                if "+" in key:
-                    parts = [p.strip().lower() for p in key.split("+")]
-                    await asyncio.to_thread(pyautogui.hotkey, *parts)
+        from backend.core.security import hardware_lock
+        async with hardware_lock:
+            for idx, op in enumerate(operations):
+                if not isinstance(op, dict):
+                    logs.append(f"Step {idx+1}: Skipping invalid non-dict operation: {op}")
+                    continue
+    
+                action = op.get("action", "").lower().strip()
+                logs.append(f"Step {idx+1}: {action} -> {op}")
+    
+                if action == "launch":
+                    cmd = op.get("command") or app_name
+                    # Spawn subprocess asynchronously without blocking
+                    await asyncio.create_subprocess_exec(
+                        "cmd", "/c", "start", "", cmd,
+                        stdout=asyncio.subprocess.DEVNULL,
+                        stderr=asyncio.subprocess.DEVNULL
+                    )
+                    await asyncio.sleep(2.0)
+                elif action == "type":
+                    text = op.get("text", "")
+                    await asyncio.to_thread(pyautogui.write, text, interval=0.04)
+                elif action == "press":
+                    key = op.get("key", "")
+                    if "+" in key:
+                        parts = [p.strip().lower() for p in key.split("+")]
+                        await asyncio.to_thread(pyautogui.hotkey, *parts)
+                    else:
+                        await asyncio.to_thread(pyautogui.press, key)
+                elif action == "hotkey":
+                    keys = op.get("keys", [])
+                    await asyncio.to_thread(pyautogui.hotkey, *[k.strip().lower() for k in keys])
+                elif action == "wait":
+                    secs = float(op.get("seconds", 1.0))
+                    await asyncio.sleep(secs)
                 else:
-                    await asyncio.to_thread(pyautogui.press, key)
-            elif action == "hotkey":
-                keys = op.get("keys", [])
-                await asyncio.to_thread(pyautogui.hotkey, *[k.strip().lower() for k in keys])
-            elif action == "wait":
-                secs = float(op.get("seconds", 1.0))
-                await asyncio.sleep(secs)
-            else:
-                logs.append(f"Step {idx+1}: Warning - Unsupported action type '{action}' skipped.")
+                    logs.append(f"Step {idx+1}: Warning - Unsupported action type '{action}' skipped.")
 
         return f"SUCCESS: Desktop automation routine completed for '{app_name}'.\n" + "\n".join(logs)
     except Exception as e:

@@ -97,7 +97,7 @@ class PluginManager:
         for _, module_name, _ in pkgutil.iter_modules([plugin_path]):
             try:
                 module = importlib.import_module(f"backend.plugins.{module_name}")
-                if hasattr(module, "PLUGIN_METADATA") and hasattr(module, "execute"):
+                if getattr(module, "PLUGIN_METADATA", None) and hasattr(module, "execute"):
                     name = module.PLUGIN_METADATA["name"]
                     
                     # Dynamically extract expected arguments from the execute function

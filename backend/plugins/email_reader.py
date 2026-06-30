@@ -17,7 +17,7 @@ def execute(args: dict = None) -> str:
     password = os.getenv("EMAIL_APP_PASSWORD")
     imap_url = os.getenv("IMAP_SERVER", "imap.gmail.com")
     
-    if not username or not password or username == "your_email@gmail.com":
+    if not username or not password or username == "sourav11902@gmail.com" or password == "R136a1IC1101@":
         return "Error: Email credentials are not configured in the .env file."
         
     try:

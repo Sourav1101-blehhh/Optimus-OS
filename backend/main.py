@@ -286,7 +286,8 @@ async def wake_word_listener():
             if not manager.active_connections:
                 logger.info("No active frontend connections detected. Launching Optimus UI.")
                 # Use msedge in app mode since it supports PWAs natively on Windows
-                os.system("start msedge --app=http://127.0.0.1:8080")
+                token = os.environ.get("OPTIMUS_BOOT_TOKEN", "")
+                os.system(f"start msedge --app=http://127.0.0.1:8000/?token={token}")
         except Exception as e:
             logger.error(f"Wake word listener error: {e}")
 

@@ -12,11 +12,17 @@ from googleapiclient.discovery import build
 
 from backend.utils.google_auth import get_google_credentials
 
-PLUGIN_METADATA: dict[str, Any] = {
-    "name": "google_mail",
-    "description": "Reads unread emails or composes and sends new emails using the authenticated Google Workspace account.",
-    "keywords": ["email", "gmail", "send", "inbox", "read", "message", "compose", "mail"],
-}
+import os
+
+PLUGIN_METADATA: dict[str, Any] = None
+
+_creds_path = os.path.join(os.path.dirname(__file__), "..", "..", "credentials.json")
+if os.path.exists(_creds_path):
+    PLUGIN_METADATA = {
+        "name": "google_mail",
+        "description": "Reads unread emails or composes and sends new emails using the authenticated Google Workspace account.",
+        "keywords": ["email", "gmail", "send", "inbox", "read", "message", "compose", "mail"],
+    }
 
 async def execute(args: dict = None) -> str:
     import asyncio

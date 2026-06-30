@@ -18,25 +18,22 @@ class AgentOrchestrator:
     async def route_task_stream(self, user_msg: str, engine: str, image_data: str = None, approved: bool = False):
         """State machine for specialized agent delegation."""
         
-        # 1. Planner Agent determines required roles
-        planning_prompt = (
-            f"Classify the following user task into one of these categories: CODE, RESEARCH, or GENERAL.\n"
-            f"User task: {user_msg}\n"
-            f"Respond ONLY with a JSON object: {{\"type\": \"CODE|RESEARCH|GENERAL\"}}"
-        )
+        # 1. Zero-latency keyword heuristic
+        msg_lower = user_msg.lower()
+        code_keywords = [
+            "code", "python", "script", "debug", "compile", "javascript", "react", 
+            "html", "css", "java", "c++", "c#", "rust", "golang", "sql", "git", "bash", 
+            "powershell", "error", "exception", "refactor", "algorithm", "bug"
+        ]
+        research_keywords = [
+            "research", "investigate", "report", "summarize", "analyze", "explain", "how does", "what is", "compare"
+        ]
         
-        try:
-            plan = await self._llm_generate(planning_prompt, engine=engine)
-            
-            plan_clean = plan.strip()
-            if plan_clean.startswith("```json"):
-                plan_clean = plan_clean[7:-3].strip()
-            elif plan_clean.startswith("```"):
-                plan_clean = plan_clean[3:-3].strip()
-                
-            task_type = json.loads(plan_clean).get("type", "GENERAL").upper()
-        except Exception as e:
-            logger.error(f"Orchestrator classification failed: {e}. Falling back to GENERAL.")
+        if any(kw in msg_lower for kw in code_keywords):
+            task_type = "CODE"
+        elif any(kw in msg_lower for kw in research_keywords):
+            task_type = "RESEARCH"
+        else:
             task_type = "GENERAL"
 
         logger.info(f"Orchestrator routed task to: {task_type} Agent")

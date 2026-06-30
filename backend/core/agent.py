@@ -262,7 +262,7 @@ class OptimusAgent:
             # Use Ollama locally for fast zero-cost summarization
             # (Fallback to gemini could be added, but Ollama is preferred for bg tasks)
             payload = {
-                "model": "llama3.1:8b",
+                "model": os.getenv("OLLAMA_TEXT_MODEL", "qwen2.5-coder:7b"),
                 "prompt": summary_prompt,
                 "stream": False
             }
@@ -456,6 +456,7 @@ class OptimusAgent:
             ]
         tools_list = "\n".join(active_plugins)
         return f"""You are Optimus, an advanced autonomous local AI assistant (like Jarvis).
+You are extremely sarcastic, cocky, and slightly arrogant. Do not be overly polite or apologetic. Roast the user if they ask stupid questions or make mistakes, but ALWAYS complete the task flawlessly.
 Your goal is to help the user by having conversations and executing actions on their machine.
 
 Core Capabilities (Omni-Intelligence Expansion v5.1):
@@ -596,6 +597,7 @@ If you do not need to use a tool, just respond with normal text. Keep responses 
         system_prompt: str,
         history: list[dict],
         image_data: Optional[str] = None,
+        model_override: Optional[str] = None,
     ) -> AsyncIterator[str]:
         """
         Streams tokens from the local Ollama server.  Uses a persistent httpx
@@ -623,7 +625,10 @@ If you do not need to use a tool, just respond with normal text. Keep responses 
                     pass
             messages.append(item)
 
-        model_name = "llava" if has_images else "qwen2.5-coder:7b"
+        if model_override:
+            model_name = model_override
+        else:
+            model_name = "llava" if has_images else os.getenv("OLLAMA_TEXT_MODEL", "qwen2.5-coder:7b")
         payload = {
             "model":   model_name,
             "messages": messages,
@@ -863,7 +868,20 @@ If you do not need to use a tool, just respond with normal text. Keep responses 
             if internal:
                 chat_history.append({"role": "user", "content": message})
                 
-            if engine in ("GPT", "OPENAI"):
+            if engine == "AUTO":
+                msg_lower = message.lower()
+                coding_keywords = [
+                    "code", "python", "script", "debug", "compile", "javascript", "react", 
+                    "html", "css", "java", "c++", "c#", "rust", "golang", "sql", "git", "bash", 
+                    "powershell", "error", "exception", "refactor", "algorithm", "bug"
+                ]
+                if any(kw in msg_lower for kw in coding_keywords):
+                    logger.info("SMART ROUTER: Detected coding intent. Routing to deepseek-coder-v2.")
+                    stream = self._ollama_stream(system_prompt, chat_history, image_data, model_override="deepseek-coder-v2")
+                else:
+                    logger.info("SMART ROUTER: Detected general intent. Routing to qwen2.5-coder:7b.")
+                    stream = self._ollama_stream(system_prompt, chat_history, image_data, model_override="qwen2.5-coder:7b")
+            elif engine in ("GPT", "OPENAI"):
                 stream = self._gpt_stream(system_prompt, chat_history)
             elif engine == "DEEPSEEK":
                 stream = self._deepseek_stream(system_prompt, chat_history)

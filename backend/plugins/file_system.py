@@ -33,7 +33,11 @@ def _enforce_sandbox(filepath: str) -> Path:
     if filepath.startswith("\\\\") or filepath.startswith("//") or filepath.startswith("\\\\?\\") or filepath.startswith("\\\\.\\"):
         raise PermissionError(f"Access denied: '{filepath}' contains forbidden UNC or device paths.")
     p = Path(filepath).resolve()
-    if not p.is_relative_to(WORKSPACE_ROOT) or str(WORKSPACE_ROOT) not in str(p):
+    
+    workspace_str = str(WORKSPACE_ROOT).lower()
+    p_str = str(p).lower()
+    
+    if not p_str.startswith(workspace_str):
         raise PermissionError(f"Access denied: '{filepath}' is outside the workspace sandbox.")
     return p
 def _read(filepath: str) -> str:
